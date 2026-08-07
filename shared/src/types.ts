@@ -1,0 +1,128 @@
+import {
+  ActivityType,
+  AuthOption,
+  BackendStack,
+  DatabaseOption,
+  DeploymentOption,
+  DeploymentStatus,
+  FrontendStack,
+  PlanType,
+  ProjectStatus,
+  StylingOption,
+  Theme,
+} from './enums';
+
+export interface IUser {
+  id: string;
+  clerkId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string;
+  bio?: string;
+  workspace: string;
+  plan: PlanType;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ITechStack {
+  frontend: FrontendStack;
+  backend: BackendStack;
+  database: DatabaseOption;
+  authentication: AuthOption;
+  styling: StylingOption;
+  deployment: DeploymentOption;
+}
+
+export interface IProject extends ITechStack {
+  id: string;
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  owner: string;
+  favorite?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IWorkspace {
+  id: string;
+  name: string;
+  slug: string;
+  owner: string;
+  members: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface INotificationPreferences {
+  productUpdates: boolean;
+  securityAlerts: boolean;
+  projectActivity: boolean;
+  weeklyDigest: boolean;
+  marketingEmails: boolean;
+}
+
+export interface ISecurityPreferences {
+  twoFactorEnabled: boolean;
+  lastPasswordChange?: string;
+}
+
+export interface ISettings {
+  id: string;
+  user: string;
+  theme: Theme;
+  notifications: INotificationPreferences;
+  security: ISecurityPreferences;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IActivity {
+  id: string;
+  user: string;
+  type: ActivityType;
+  message: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface IDeployment {
+  id: string;
+  project: string;
+  provider: DeploymentOption;
+  status: DeploymentStatus;
+  url?: string;
+  commitMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApiSuccess<T> {
+  success: true;
+  data: T;
+  message?: string;
+}
+
+export interface ApiFailure {
+  success: false;
+  message: string;
+  errors?: Record<string, string[]>;
+}
+
+export type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+export interface PaginatedData<T> {
+  items: T[];
+  pagination: PaginationMeta;
+}
