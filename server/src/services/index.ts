@@ -3,3 +3,7 @@ export * as projectService from './project.service';
 export * as userService from './user.service';
 export * as settingsService from './settings.service';
 export * as dashboardService from './dashboard.service';
+export * as conversationService from './conversation.service';
+export * as messageService from './message.service';
+export * as usageService from './usage.service';
+export * as aiService from './ai/ai.service';

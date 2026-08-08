@@ -8,7 +8,7 @@ async function bootstrap(): Promise<void> {
     await connectDB();
 
     const server = app.listen(env.PORT, () => {
-      logger.info(`DevForge AI API listening on port ${env.PORT} [${env.NODE_ENV}]`);
+      logger.info(`Mingo AI API listening on port ${env.PORT} [${env.NODE_ENV}]`);
     });
 
     const shutdown = (signal: string) => {

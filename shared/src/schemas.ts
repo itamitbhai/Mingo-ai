@@ -10,6 +10,8 @@ import {
   Theme,
 } from './enums';
 
+const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
+
 const enumValues = <T extends Record<string, string>>(e: T) =>
   Object.values(e) as [T[keyof T], ...T[keyof T][]];
 
@@ -80,3 +82,42 @@ export const updateSettingsSchema = z.object({
 });
 
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
+export const createConversationSchema = z.object({
+  title: z.string().trim().min(1).max(80).optional(),
+});
+
+export type CreateConversationInput = z.infer<typeof createConversationSchema>;
+
+export const updateConversationSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1, 'Title is required')
+    .max(80, 'Title must be at most 80 characters'),
+});
+
+export type UpdateConversationInput = z.infer<typeof updateConversationSchema>;
+
+export const MESSAGE_MAX_LENGTH = 8000;
+
+export const sendMessageSchema = z
+  .object({
+    content: z.string().trim().min(1).max(MESSAGE_MAX_LENGTH).optional(),
+    retryMessageId: z
+      .string()
+      .regex(OBJECT_ID_REGEX, 'Invalid message id')
+      .optional(),
+  })
+  .refine((data) => Boolean(data.content) !== Boolean(data.retryMessageId), {
+    message: 'Provide exactly one of "content" or "retryMessageId"',
+  });
+
+export type SendMessageInput = z.infer<typeof sendMessageSchema>;
+
+export const messageQuerySchema = z.object({
+  cursor: z.string().regex(OBJECT_ID_REGEX, 'Invalid cursor').optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(30),
+});
+
+export type MessageQueryInput = z.infer<typeof messageQuerySchema>;

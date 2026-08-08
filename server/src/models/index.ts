@@ -4,3 +4,6 @@ export * from './workspace.model';
 export * from './settings.model';
 export * from './activity.model';
 export * from './deployment.model';
+export * from './conversation.model';
+export * from './message.model';
+export * from './usage.model';

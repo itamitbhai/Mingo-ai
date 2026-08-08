@@ -6,6 +6,8 @@ import {
   DeploymentOption,
   DeploymentStatus,
   FrontendStack,
+  MessageRole,
+  MessageStatus,
   PlanType,
   ProjectStatus,
   StylingOption,
@@ -97,6 +99,50 @@ export interface IDeployment {
   commitMessage?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IMessageTokens {
+  input: number | null;
+  output: number | null;
+  total: number | null;
+}
+
+export interface IConversation {
+  id: string;
+  project: string;
+  owner: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface IMessage {
+  id: string;
+  conversation: string;
+  project: string;
+  role: MessageRole;
+  content: string;
+  status: MessageStatus;
+  provider?: string;
+  modelName?: string;
+  tokens: IMessageTokens;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface IUsage {
+  id: string;
+  user: string;
+  project: string;
+  conversation: string;
+  modelName: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  createdAt: string;
 }
 
 export interface ApiSuccess<T> {

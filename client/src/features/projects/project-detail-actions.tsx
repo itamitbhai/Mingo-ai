@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Archive, ArchiveRestore, Copy, Loader2, Pencil, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { Archive, ArchiveRestore, Copy, Loader2, Pencil, Sparkles, Trash2 } from 'lucide-react';
 import { ProjectStatus, type IProject } from 'shared';
 
 import {
@@ -27,6 +28,11 @@ export function ProjectDetailActions({ project }: { project: IProject }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" asChild>
+          <Link href={`/projects/${project.id}/chat`}>
+            <Sparkles className="size-4" /> Open AI Chat
+          </Link>
+        </Button>
         <Button variant="outline" size="sm" onClick={() => editProject(project)} disabled={isPending}>
           <Pencil className="size-4" /> Edit
         </Button>

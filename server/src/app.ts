@@ -21,7 +21,18 @@ app.use(
     credentials: true,
   })
 );
-app.use(compression());
+app.use(
+  compression({
+    // The AI message endpoint streams Server-Sent Events; gzip would buffer
+    // chunks and defeat progressive delivery, so it's excluded here.
+    filter: (req, res) => {
+      if (req.method === 'POST' && req.originalUrl.includes('/messages')) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+  })
+);
 
 if (isDev) {
   app.use(morgan('dev'));

@@ -13,6 +13,11 @@ const envSchema = z.object({
   CLERK_WEBHOOK_SECRET: z.string().min(1, 'CLERK_WEBHOOK_SECRET is required'),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(300),
+  AI_PROVIDER: z.enum(['openai']).default('openai'),
+  AI_MODEL: z.string().min(1).default('gpt-4o-mini'),
+  OPENAI_API_KEY: z.string().optional(),
+  AI_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  AI_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
 });
 
 function loadEnv() {

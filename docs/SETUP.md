@@ -22,7 +22,16 @@
      user record on first API call regardless. The webhook is what keeps things in sync in
      production and when a user updates their name/avatar in Clerk directly.
 
-## 3. Environment variables
+## 3. OpenAI (for the AI chat)
+
+1. Create an API key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
+2. That's it — no other setup. The model is configurable via `AI_MODEL` (defaults to
+   `gpt-4o-mini`).
+
+Without this, every other Phase 1 feature (projects, dashboard, settings) still works — only the
+AI chat endpoint will return a friendly "not configured" error until a key is set.
+
+## 4. Environment variables
 
 ```bash
 cp server/.env.example server/.env
@@ -37,13 +46,14 @@ Fill in:
 - `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` — from step 2
 - `CLERK_WEBHOOK_SECRET` — from step 2 (or leave the placeholder if you skipped the webhook)
 - `CLIENT_URL` — `http://localhost:3000` for local dev
+- `OPENAI_API_KEY` — from step 3 (leave blank to run everything except AI chat)
 
 **`client/.env.local`**
 
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` — same Clerk app as the server
 - `NEXT_PUBLIC_API_URL` — `http://localhost:8080/api` for local dev
 
-## 4. Install and run
+## 5. Install and run
 
 ```bash
 npm install

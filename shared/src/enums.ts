@@ -77,3 +77,26 @@ export const Theme = {
   SYSTEM: 'system',
 } as const;
 export type Theme = (typeof Theme)[keyof typeof Theme];
+
+export const MessageRole = {
+  USER: 'user',
+  ASSISTANT: 'assistant',
+  SYSTEM: 'system',
+} as const;
+export type MessageRole = (typeof MessageRole)[keyof typeof MessageRole];
+
+export const MessageStatus = {
+  PENDING: 'pending',
+  STREAMING: 'streaming',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+} as const;
+export type MessageStatus = (typeof MessageStatus)[keyof typeof MessageStatus];
+
+export const AIProvider = {
+  OPENAI: 'openai',
+  ANTHROPIC: 'anthropic',
+  GEMINI: 'gemini',
+} as const;
+export type AIProvider = (typeof AIProvider)[keyof typeof AIProvider];
