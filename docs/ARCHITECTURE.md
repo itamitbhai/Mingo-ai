@@ -20,13 +20,14 @@ Layered structure:
 src/
 ├── config/       env loading & validation (Zod), MongoDB connection
 ├── models/       Mongoose schemas: User, Project, Workspace, Settings, Activity, Deployment,
-│                 Conversation, Message, Usage
+│                 Conversation, Message, Usage, ProjectFile
 ├── middlewares/  auth (Clerk), centralized error handling, rate limiting (express-rate-limit for
 │                 general routes, a custom in-memory abstraction for AI requests), request validation
 ├── validators/   re-exports of the shared Zod schemas, wired into routes via the validate middleware
 ├── controllers/  thin request/response handlers
 ├── services/     business logic (the controllers call these; this is where DB queries live)
-│   └── ai/       provider-agnostic AI layer (see "AI chat" below)
+│   ├── ai/       provider-agnostic AI layer (see "AI chat" below)
+│   └── files/    the workspace's MongoDB-backed "filesystem" (see "Workspace" below)
 ├── routes/       Express routers, one per resource
 └── utils/        ApiError, ApiResponse helpers, asyncHandler, logger
 ```
@@ -89,6 +90,37 @@ provider map — nothing in the controller, routes, or frontend changes.
 Because SSE responses must not be gzip-buffered by `compression()`, `app.ts` passes a `filter` that
 excludes `POST .../messages` from compression.
 
+## Workspace (`server/src/services/files/`)
+
+```
+services/files/
+├── file-validation.service.ts  assertSafePath (rejects `..`, absolute paths, drive letters, null
+│                                bytes), plus getParentPath/getBaseName/escapeRegExp helpers
+├── file.service.ts              CRUD: getFileContent, createFile, createFolder, updateFileContent
+│                                (optimistic-concurrency version check), renameEntry (cascades to
+│                                every descendant for a folder), deleteEntry (cascades), searchFiles
+├── file-tree.service.ts         builds the nested, folders-first-then-alphabetical tree the
+│                                explorer renders, from the flat ProjectFile collection
+└── starter-files.service.ts     seeds a small stack-aware starter tree when a project is created
+```
+
+**MongoDB is the only filesystem** — `ProjectFile` documents (`path`, `parentPath`, `type`,
+`content`, `version`, ...) are the entire directory tree; there is no real disk I/O anywhere in this
+API. `assertSafePath` runs on every path even though the Zod route schema (`shared`'s
+`relativePathSchema`) already normalized/validated it — defense in depth, since this function is the
+only thing standing between a crafted `path` and an out-of-scope query. Every query is additionally
+scoped to `{ project, owner }`, matching `project.service`'s existing ownership pattern (never
+trusting a client-supplied owner id).
+
+**Renaming/deleting a folder** doesn't cascade via a database trigger — `renameEntry`/`deleteEntry`
+find every `ProjectFile` whose `path` equals or is prefixed by the folder's path, then rewrite them
+in a single `bulkWrite` (rename) or remove them in one `deleteMany` (delete).
+
+**Version conflicts**: every `ProjectFile` has a `version` counter, incremented on each content
+save. The client always sends back the `version` it loaded as `expectedVersion`; a mismatch means
+someone/something else saved first, and the update is rejected with `409` rather than silently
+overwriting newer content (see `docs/API.md`).
+
 ## Client (`client/`)
 
 ```
@@ -98,19 +130,28 @@ src/
 │   ├── (auth)/           sign-in / sign-up — centered layout, protected by nothing (public)
 │   └── (dashboard)/      dashboard, projects, templates, deployments, billing, settings, profile
 │                         — sidebar + topbar layout, protected by middleware.ts
-│       └── projects/[id]/chat/[[conversationId]]  AI chat — see below
-├── components/ui/     shadcn/ui-style primitives (button, card, dialog, select, chart, ...)
+│       ├── projects/[id]/chat/[[conversationId]]  AI chat — see below
+│       └── projects/[id]/workspace                browser IDE — see below
+├── components/ui/     shadcn/ui-style primitives (button, card, dialog, select, chart,
+│                       resizable, command, context-menu, ...)
 ├── components/shared/ small app-wide components (Logo, EmptyState, PaginationControls, ...)
 ├── components/chat/    AI chat UI (ChatShell, ChatSidebar, ChatMessages, ChatComposer, ...)
+├── components/workspace/ browser IDE UI (WorkspaceShell, FileExplorer, MonacoEditorPane,
+│                         EditorTabs, CommandPalette, WorkspaceChatPanel, BottomPanel, ...)
 ├── features/          feature-scoped components, grouped by domain (projects, dashboard, ...)
-├── services/           thin wrappers around `fetch` for each API resource
-├── store/              Zustand stores for client-only UI state (modal open/close state, the chat
-│                       mobile drawer, and the pending-first-message handoff — see below)
+├── services/           thin wrappers around `fetch` for each API resource (`services/files/` for
+│                       the workspace)
+├── store/              Zustand stores for client-only UI state: modal open/close, the chat mobile
+│                       drawer + pending-first-message handoff, and the workspace's UI state
+│                       (`use-workspace-ui-store.ts`, persisted) + file content cache
+│                       (`use-file-cache-store.ts`, not persisted) — see below
 ├── providers/          Theme, Clerk, and Sonner (toast) providers, composed in the root layout
-├── lib/                `cn`, the API fetch helper, constants, server-only auth helpers
-├── hooks/              `useDebouncedValue`, `useProjectActions`, `useConversations`, `useChat`
+├── lib/                `cn`, the API fetch helper, constants, server-only auth helpers,
+│                       `format-document.ts` (Prettier standalone)
+├── hooks/              `useDebouncedValue`, `useProjectActions`, `useConversations`, `useChat`,
+│                       `useWorkspaceFiles`, `useFileTab`, `useWorkspaceKeyboardShortcuts`
 ├── types/               types for API shapes that are specific to the client (not shared)
-└── utils/               formatting helpers (dates, initials, tech-stack badges)
+└── utils/               formatting helpers (dates, initials, tech-stack badges, file icons)
 ```
 
 - **Data fetching**: dashboard pages are Server Components. They call `getServerAuthToken()`
@@ -145,9 +186,47 @@ header. "Stop generating" is a plain `AbortController.abort()` on that fetch.
 Assistant messages render through `MarkdownRenderer` (`react-markdown` + `remark-gfm` +
 `rehype-highlight`) with a custom code-block renderer for the language label and copy button.
 
+### Workspace (browser IDE)
+
+`WorkspaceShell` composes the whole layout with shadcn's `resizable.tsx`
+(`react-resizable-panels`): a horizontal group for Explorer / Editor / AI chat, nested inside a
+vertical group with the bottom Output/Problems/Logs/Terminal panel. It owns the one `useFileTab`
+call for whichever tab is active (Monaco only ever shows one file at a time) and reads/writes two
+Zustand stores:
+
+- `use-workspace-ui-store.ts` (persisted to `localStorage`, keyed per project id) — open tab paths,
+  active tab, expanded folders, panel visibility, editor preferences. Explicitly `partialize`d to
+  exclude file content, per the "no sensitive data in localStorage" rule — only UI preferences
+  persist, and reopened tabs re-fetch their content fresh from MongoDB on reload.
+- `use-file-cache-store.ts` (in-memory only, never persisted) — the actual content/dirty/version
+  state for whichever files are currently open, keyed by `${projectId}:${path}`.
+
+**Editor**: `MonacoEditorPane` wraps `@monaco-editor/react` (Monaco itself loads from a CDN, its
+default) and defines a custom `mingo-dark` theme via `monaco.editor.defineTheme` rather than using
+VS Code's default. Selecting text and choosing "Ask Mingo AI" from Monaco's own context menu (added
+via `editor.addAction`) attaches that selection to the AI panel — it never edits the buffer.
+
+**Save/autosave**: `useFileTab` debounces autosave (1.5s after the user stops typing, only when
+content actually changed) and calls the same `updateFileContent` service the manual Ctrl+S path
+uses, passing the loaded `version` as `expectedVersion` so a stale save is rejected with a friendly
+conflict message instead of silently overwriting newer content.
+
+**AI panel**: `WorkspaceChatPanel` reuses Phase 2's `useChat`/`useConversations` hooks and
+`ChatMessages`/`ChatComposer`/`MarkdownRenderer` components directly — it does **not** reuse
+`ChatShell`, because `ChatShell` hard-codes a `md:` viewport breakpoint to show/hide its 288px
+conversation sidebar, which is correct for a full page but wrong inside a ~360px docked panel. The
+"current file" / "selected code" context is pure client-side string composition (a fenced code
+block prepended to the message) before calling the existing `chat.service.streamMessage` — zero
+Phase 2 API changes.
+
+**Formatting**: "Format Document" runs Prettier's browser ("standalone") build entirely
+client-side, dynamically importing only the plugin(s) needed for the current file's language.
+
 ## Design system
 
 Tailwind v4 (CSS-first config, no `tailwind.config.ts`) with an OKLCH color palette defined in
 `app/globals.css`, exposed as shadcn-style CSS variables (`--background`, `--primary`, etc.) and a
 handful of custom utilities (`glass`, `glass-card`, `gradient-text`, `gradient-bg`, `glow-primary`)
-for the glassmorphism/gradient look. Dark mode is the default theme, toggled via `next-themes`.
+for the glassmorphism/gradient look. Dark mode is the default theme, toggled via `next-themes`. The
+Monaco editor has its own separate `mingo-dark` theme (see "Workspace" above), since Monaco doesn't
+use CSS variables/Tailwind.

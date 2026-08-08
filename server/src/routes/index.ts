@@ -4,6 +4,7 @@ import profileRoutes from './profile.routes';
 import settingsRoutes from './settings.routes';
 import dashboardRoutes from './dashboard.routes';
 import { conversationsRouter, projectConversationsRouter } from './conversation.routes';
+import { fileRouter, folderRouter } from './file.routes';
 
 const router = Router();
 
@@ -13,6 +14,8 @@ router.get('/health', (_req, res) => {
 
 router.use('/projects', projectRoutes);
 router.use('/projects/:projectId/conversations', projectConversationsRouter);
+router.use('/projects/:projectId/files', fileRouter);
+router.use('/projects/:projectId/folders', folderRouter);
 router.use('/profile', profileRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/dashboard', dashboardRoutes);

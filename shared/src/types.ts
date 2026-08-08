@@ -5,6 +5,7 @@ import {
   DatabaseOption,
   DeploymentOption,
   DeploymentStatus,
+  FileEntryType,
   FrontendStack,
   MessageRole,
   MessageStatus,
@@ -143,6 +144,30 @@ export interface IUsage {
   outputTokens: number | null;
   totalTokens: number | null;
   createdAt: string;
+}
+
+export interface IProjectFile {
+  id: string;
+  project: string;
+  owner: string;
+  name: string;
+  path: string;
+  type: FileEntryType;
+  language?: string;
+  parentPath: string | null;
+  size: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface IProjectFileWithContent extends IProjectFile {
+  content: string;
+}
+
+export interface IFileTreeNode extends IProjectFile {
+  children?: IFileTreeNode[];
 }
 
 export interface ApiSuccess<T> {

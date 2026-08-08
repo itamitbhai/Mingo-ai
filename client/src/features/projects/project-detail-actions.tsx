@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Archive, ArchiveRestore, Copy, Loader2, Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Code2, Copy, Loader2, Pencil, Sparkles, Trash2 } from 'lucide-react';
 import { ProjectStatus, type IProject } from 'shared';
 
 import {
@@ -29,6 +29,11 @@ export function ProjectDetailActions({ project }: { project: IProject }) {
     <>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
+          <Link href={`/projects/${project.id}/workspace`}>
+            <Code2 className="size-4" /> Open Workspace
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" asChild>
           <Link href={`/projects/${project.id}/chat`}>
             <Sparkles className="size-4" /> Open AI Chat
           </Link>

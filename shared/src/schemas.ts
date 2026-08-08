@@ -9,8 +9,10 @@ import {
   StylingOption,
   Theme,
 } from './enums';
+import { isValidRelativePath, normalizeRelativePath } from './utils';
 
 const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
+const FILENAME_REGEX = /^[^/\\\0]+$/;
 
 const enumValues = <T extends Record<string, string>>(e: T) =>
   Object.values(e) as [T[keyof T], ...T[keyof T][]];
@@ -121,3 +123,68 @@ export const messageQuerySchema = z.object({
 });
 
 export type MessageQueryInput = z.infer<typeof messageQuerySchema>;
+
+export const MAX_FILE_CONTENT_LENGTH = 2_000_000;
+
+export const fileNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Name is required')
+  .max(255, 'Name is too long')
+  .refine((value) => FILENAME_REGEX.test(value) && value !== '.' && value !== '..', {
+    message: 'Invalid file name',
+  });
+
+export type FileNameInput = z.infer<typeof fileNameSchema>;
+
+export const relativePathSchema = z
+  .string()
+  .trim()
+  .transform((value) => normalizeRelativePath(value))
+  .refine((value) => isValidRelativePath(value), { message: 'Invalid path' });
+
+export const createFileSchema = z.object({
+  path: relativePathSchema,
+  content: z.string().max(MAX_FILE_CONTENT_LENGTH).optional(),
+});
+
+export type CreateFileInput = z.infer<typeof createFileSchema>;
+
+export const createFolderSchema = z.object({
+  path: relativePathSchema,
+});
+
+export type CreateFolderInput = z.infer<typeof createFolderSchema>;
+
+export const updateFileContentSchema = z.object({
+  path: relativePathSchema,
+  content: z.string().max(MAX_FILE_CONTENT_LENGTH),
+  expectedVersion: z.number().int().positive().optional(),
+});
+
+export type UpdateFileContentInput = z.infer<typeof updateFileContentSchema>;
+
+export const renameEntrySchema = z.object({
+  path: relativePathSchema,
+  newName: fileNameSchema,
+});
+
+export type RenameEntryInput = z.infer<typeof renameEntrySchema>;
+
+export const deleteEntrySchema = z.object({
+  path: relativePathSchema,
+});
+
+export type DeleteEntryInput = z.infer<typeof deleteEntrySchema>;
+
+export const fileContentQuerySchema = z.object({
+  path: relativePathSchema,
+});
+
+export type FileContentQueryInput = z.infer<typeof fileContentQuerySchema>;
+
+export const fileSearchQuerySchema = z.object({
+  q: z.string().trim().min(1, 'Search query is required').max(200),
+});
+
+export type FileSearchQueryInput = z.infer<typeof fileSearchQuerySchema>;

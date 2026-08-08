@@ -100,3 +100,9 @@ export const AIProvider = {
   GEMINI: 'gemini',
 } as const;
 export type AIProvider = (typeof AIProvider)[keyof typeof AIProvider];
+
+export const FileEntryType = {
+  FILE: 'file',
+  FOLDER: 'folder',
+} as const;
+export type FileEntryType = (typeof FileEntryType)[keyof typeof FileEntryType];

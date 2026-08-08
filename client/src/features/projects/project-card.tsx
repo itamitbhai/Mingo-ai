@@ -39,76 +39,86 @@ export function ProjectCard({ project }: { project: IProject }) {
 
   return (
     <>
-      <Card className="group h-full bg-card/60 transition-colors hover:border-primary/40">
-        <CardHeader className="flex-row items-start justify-between space-y-0">
-          <Link href={`/projects/${project.id}`} className="min-w-0 flex-1">
-            <h3 className="truncate font-semibold hover:text-primary">{project.name}</h3>
-          </Link>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0"
-                aria-label="Project actions"
-                disabled={isPending}
-              >
-                {isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <MoreVertical className="size-4" />
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => editProject(project)}>
-                <Pencil /> Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => duplicate(project.id)}>
-                <Copy /> Duplicate
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => archive(project.id, project.status)}>
-                {project.status === ProjectStatus.ARCHIVED ? (
-                  <>
-                    <ArchiveRestore /> Restore
-                  </>
-                ) : (
-                  <>
-                    <Archive /> Archive
-                  </>
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
-                <Trash2 /> Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </CardHeader>
+      <Card className="group relative h-full bg-card/60 transition-colors hover:border-primary/40">
+        {/* Makes the whole card tappable/clickable, not just the title text — the interactive
+            bits below (dropdown trigger) sit in a `pointer-events-auto` island above this. */}
+        <Link
+          href={`/projects/${project.id}`}
+          className="absolute inset-0 z-0 rounded-[inherit]"
+          aria-label={`Open ${project.name}`}
+        />
 
-        <CardContent>
-          <Link href={`/projects/${project.id}`}>
+        <div className="pointer-events-none relative z-1 flex h-full flex-col gap-6">
+          <CardHeader className="flex-row items-start justify-between space-y-0">
+            <h3 className="min-w-0 flex-1 truncate font-semibold group-hover:text-primary">
+              {project.name}
+            </h3>
+            <div className="pointer-events-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    aria-label="Project actions"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <MoreVertical className="size-4" />
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => editProject(project)}>
+                    <Pencil /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => duplicate(project.id)}>
+                    <Copy /> Duplicate
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => archive(project.id, project.status)}>
+                    {project.status === ProjectStatus.ARCHIVED ? (
+                      <>
+                        <ArchiveRestore /> Restore
+                      </>
+                    ) : (
+                      <>
+                        <Archive /> Archive
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
+                    <Trash2 /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </CardHeader>
+
+          <CardContent>
             <p className="text-sm text-muted-foreground">{truncate(project.description, 110)}</p>
-          </Link>
-          <div className="mt-4 flex flex-wrap gap-1.5">
-            {badges.map((badge) => (
-              <span
-                key={badge.key}
-                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
-              >
-                <badge.icon className="size-3" />
-                {badge.label}
-              </span>
-            ))}
-          </div>
-        </CardContent>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {badges.map((badge) => (
+                <span
+                  key={badge.key}
+                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+                >
+                  <badge.icon className="size-3" />
+                  {badge.label}
+                </span>
+              ))}
+            </div>
+          </CardContent>
 
-        <CardFooter className="justify-between">
-          <ProjectStatusBadge status={project.status} />
-          <span className="text-xs text-muted-foreground">
-            Updated {formatRelativeTime(project.updatedAt)}
-          </span>
-        </CardFooter>
+          <CardFooter className="justify-between">
+            <ProjectStatusBadge status={project.status} />
+            <span className="text-xs text-muted-foreground">
+              Updated {formatRelativeTime(project.updatedAt)}
+            </span>
+          </CardFooter>
+        </div>
       </Card>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>

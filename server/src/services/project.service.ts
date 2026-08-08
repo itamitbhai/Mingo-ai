@@ -9,7 +9,9 @@ import {
 import { ProjectDocument, ProjectModel } from '../models';
 import { ApiError } from '../utils/ApiError';
 import { buildPaginationMeta } from '../utils/paginate';
+import { logger } from '../utils/logger';
 import { logActivity } from './activity.service';
+import { createStarterFiles } from './files/starter-files.service';
 
 const SORT_MAP: Record<ProjectQueryInput['sort'], Record<string, 1 | -1>> = {
   newest: { createdAt: -1 },
@@ -63,6 +65,14 @@ export async function createProject(owner: Types.ObjectId, data: CreateProjectIn
     `Created project "${project.name}"`,
     { projectId: project._id.toString() }
   );
+
+  try {
+    await createStarterFiles(project._id, owner, project.frontend);
+  } catch (err) {
+    // The project itself was created successfully — a failed starter-file seed shouldn't fail
+    // project creation. The workspace will just start empty; the user can still create files.
+    logger.error('project.starterFiles.failed', err);
+  }
 
   return project;
 }

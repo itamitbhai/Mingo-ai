@@ -7,3 +7,6 @@ export * as conversationService from './conversation.service';
 export * as messageService from './message.service';
 export * as usageService from './usage.service';
 export * as aiService from './ai/ai.service';
+export * as fileService from './files/file.service';
+export * as fileTreeService from './files/file-tree.service';
+export * as starterFilesService from './files/starter-files.service';

@@ -86,6 +86,30 @@ To stop an in-flight generation, abort the `fetch` request (`AbortController`) �
 the dropped connection, cancels the upstream OpenAI request, and marks the message `cancelled`.
 There is no separate "stop" endpoint.
 
+## Files & folders (workspace)
+
+MongoDB is the entire "filesystem" — there is no real disk I/O anywhere in this API. Every `path`
+is normalized and validated (`shared`'s `isValidRelativePath`) before it's used in a query, and
+every query is additionally scoped to `{ project, owner }`, so a crafted path like `../../secret`
+or `/etc/passwd` is rejected with `400` before it ever reaches Mongo — it can't "escape" a project's
+own documents because there's no filesystem to escape to.
+
+| Method | Path                                              | Body / Query                          | Description |
+| ------ | -------------------------------------------------- | --------------------------------------- | ------------- |
+| GET    | `/projects/:projectId/files`                       | —                                      | Full file tree (metadata only, no `content`), folders-first then alphabetical |
+| GET    | `/projects/:projectId/files/content`               | `path`                                 | One file's content + `version` |
+| GET    | `/projects/:projectId/files/search`                | `q`                                    | Case-insensitive scan of stored file contents (max 50 files, 5 matching lines each) |
+| POST   | `/projects/:projectId/files`                       | `{ path, content? }`                  | Create a file (parent folder, if any, must already exist) |
+| POST   | `/projects/:projectId/folders`                     | `{ path }`                            | Create a folder |
+| PATCH  | `/projects/:projectId/files`                       | `{ path, content, expectedVersion? }` | Update a file's content |
+| PATCH  | `/projects/:projectId/files/rename`                | `{ path, newName }`                   | Rename a file or folder (folder rename cascades to every descendant) |
+| DELETE | `/projects/:projectId/files`                       | `{ path }`                            | Delete a file, or a folder and everything inside it |
+
+**Version conflicts**: pass the `version` you last loaded as `expectedVersion` on a content update.
+If it no longer matches (someone/something else saved in between), the request fails with `409` and
+the message "This file was changed elsewhere. Reload before saving." — omit `expectedVersion` to
+save unconditionally.
+
 ## Profile
 
 | Method | Path        | Body                  | Description                                    |
