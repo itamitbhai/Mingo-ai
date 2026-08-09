@@ -8,6 +8,8 @@ export const PLAN_LIMITS: Record<PlanType, { projects: number; label: string }> 
 
 export const DEFAULT_PAGE_SIZE = 9;
 
+export const MAX_BATCH_OPERATIONS = 100;
+
 export const API_ROUTES = {
   PROJECTS: '/api/projects',
   PROFILE: '/api/profile',

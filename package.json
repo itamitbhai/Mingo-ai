@@ -2,7 +2,7 @@
   "name": "mingo-ai",
   "version": "0.2.0",
   "private": true,
-  "description": "Mingo AI — an AI-powered software engineering platform. Phase 2: AI chat & project conversations.",
+  "description": "Mingo AI — an AI-powered software engineering platform. Phase 4: virtual project filesystem & workspace engine.",
   "workspaces": [
     "client",
     "server",

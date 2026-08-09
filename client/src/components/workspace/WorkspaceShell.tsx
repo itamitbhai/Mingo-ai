@@ -15,16 +15,20 @@ import { saveFileByPath, useFileTab } from '@/hooks/use-file-tab';
 import { useWorkspaceKeyboardShortcuts } from '@/hooks/use-workspace-keyboard-shortcuts';
 import { formatDocument, isFormattableLanguage } from '@/lib/format-document';
 import { fileCacheKey, useFileCacheStore } from '@/store/use-file-cache-store';
+import { useWorkspaceStore, type WorkspaceUiStatus } from '@/store/use-workspace-store';
 import { useWorkspaceUIStore } from '@/store/use-workspace-ui-store';
-import type { AIContextAttachment, EditorProblem, FileStatus } from '@/types/workspace';
+import type { AIContextAttachment, EditorProblem } from '@/types/workspace';
+import { BatchOperationsDialog } from './BatchOperationsDialog';
 import { BottomPanel } from './BottomPanel';
 import { CommandPalette } from './CommandPalette';
 import { CreateEntryDialog, type CreateEntryState } from './CreateEntryDialog';
 import { EditorSettingsDialog } from './EditorSettingsDialog';
 import { EditorTabs } from './EditorTabs';
 import { FileExplorer } from './FileExplorer';
+import { HistoryPanel } from './HistoryPanel';
 import { MonacoEditorPane } from './MonacoEditorPane';
 import { QuickFileSearch } from './QuickFileSearch';
+import { SnapshotPanel } from './SnapshotPanel';
 import { WorkspaceChatPanel } from './WorkspaceChatPanel';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { WorkspaceSearchDialog } from './WorkspaceSearchDialog';
@@ -86,9 +90,14 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
   const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSnapshotPanelOpen, setIsSnapshotPanelOpen] = useState(false);
+  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
   const [closeConfirmPath, setCloseConfirmPath] = useState<string | null>(null);
   const [problems, setProblems] = useState<EditorProblem[]>([]);
   const [pendingAttachment, setPendingAttachment] = useState<AIContextAttachment | null>(null);
+
+  const workspaceStoreStatus = useWorkspaceStore((state) => state.status);
 
   const editorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
@@ -110,17 +119,16 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
     return dirty;
   }, [openTabPaths, filesCache, projectId]);
 
-  const saveStatus: FileStatus = !activeTabPath
-    ? 'idle'
-    : activeFile?.isLoading
-      ? 'loading'
+  const workspaceStatus: WorkspaceUiStatus =
+    workspaceStoreStatus === 'restoring' || workspaceStoreStatus === 'snapshotting'
+      ? workspaceStoreStatus
       : activeFile?.isSaving
         ? 'saving'
         : activeFile?.saveError
           ? 'error'
-          : activeFile?.isDirty
-            ? 'idle'
-            : 'saved';
+          : dirtyPaths.size > 0
+            ? 'unsaved'
+            : 'ready';
 
   function openFile(node: IFileTreeNode) {
     if (node.type !== FileEntryType.FILE) return;
@@ -219,7 +227,8 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
       <WorkspaceHeader
         projectId={projectId}
         projectName={project.name}
-        saveStatus={saveStatus}
+        workspaceStatus={workspaceStatus}
+        dirtyCount={dirtyPaths.size}
         isExplorerOpen={isExplorerOpen}
         isAIChatOpen={isAIChatOpen}
         isBottomPanelOpen={isBottomPanelOpen}
@@ -228,6 +237,10 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
         onToggleBottomPanel={toggleBottomPanel}
         onSave={() => void save()}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onRefreshWorkspace={() => void files.refresh()}
+        onOpenSnapshots={() => setIsSnapshotPanelOpen(true)}
+        onOpenHistory={() => setIsHistoryPanelOpen(true)}
+        onOpenBatchOperations={() => setIsBatchDialogOpen(true)}
       />
 
       <ResizablePanelGroup direction="vertical" className="flex-1">
@@ -244,6 +257,7 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
                     onCreateFile={files.createFile}
                     onCreateFolder={files.createFolder}
                     onRename={files.rename}
+                    onMove={files.move}
                     onDelete={files.remove}
                     onAskAI={(attachment) => {
                       setPendingAttachment(attachment);
@@ -339,6 +353,22 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
       />
 
       <EditorSettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+
+      <SnapshotPanel
+        projectId={projectId}
+        open={isSnapshotPanelOpen}
+        onOpenChange={setIsSnapshotPanelOpen}
+        onRestored={() => void files.refresh()}
+      />
+
+      <HistoryPanel projectId={projectId} open={isHistoryPanelOpen} onOpenChange={setIsHistoryPanelOpen} />
+
+      <BatchOperationsDialog
+        projectId={projectId}
+        open={isBatchDialogOpen}
+        onOpenChange={setIsBatchDialogOpen}
+        onApplied={() => void files.refresh()}
+      />
 
       <CreateEntryDialog
         state={rootCreateState}

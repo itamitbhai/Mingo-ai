@@ -1,9 +1,15 @@
 import { Types } from 'mongoose';
-import { detectLanguage, FileEntryType } from 'shared';
-import { ProjectFileModel } from '../../models';
+import { detectLanguage, detectMimeType, FileChangeType, FileEntryType, isBinaryFile } from 'shared';
+import { ProjectFileDocument, ProjectFileModel } from '../../models';
 import { ApiError } from '../../utils/ApiError';
+import { computeChecksum } from '../../utils/checksum';
 import { isDuplicateKeyError } from '../../utils/mongoErrors';
 import { getProjectById } from '../project.service';
+import { workspaceCache } from '../workspace/cache.service';
+import { moveOrRenameEntry } from '../workspace/move.service';
+import { recordVersion } from '../workspace/version.service';
+import { logActivity } from '../workspace/workspace-activity.service';
+import { touchWorkspace } from '../workspace/workspace.service';
 import { assertSafePath, escapeRegExp, getBaseName, getParentPath } from './file-validation.service';
 
 async function assertProjectOwnership(owner: Types.ObjectId, projectId: string) {
@@ -25,6 +31,45 @@ async function assertParentFolderExists(
   if (!parent) {
     throw ApiError.badRequest('Parent folder does not exist');
   }
+}
+
+/**
+ * Records a `ProjectFileVersion` history entry + a `WorkspaceActivity` log line for every mutation,
+ * then invalidates the project's cached tree/manifest and bumps the workspace's `activeVersion`.
+ * This is what makes the existing `/files` and `/folders` endpoints (used by the live Monaco IDE)
+ * produce real version history for free — there's one filesystem, not a parallel one for AI agents.
+ */
+async function recordChange(
+  projectId: Types.ObjectId,
+  file: ProjectFileDocument,
+  changeType: FileChangeType,
+  changedBy: Types.ObjectId,
+  description: string
+): Promise<void> {
+  const checksum = file.checksum ?? computeChecksum(file.content ?? '');
+
+  await Promise.all([
+    recordVersion({
+      file: file._id,
+      project: projectId,
+      owner: changedBy,
+      version: file.version,
+      content: file.content ?? '',
+      checksum,
+      changedBy,
+      changeType,
+    }),
+    logActivity({
+      project: projectId,
+      user: changedBy,
+      file: file._id,
+      action: changeType,
+      description,
+    }),
+  ]);
+
+  workspaceCache.invalidate(projectId.toString());
+  await touchWorkspace(changedBy, projectId);
 }
 
 export async function getFileContent(owner: Types.ObjectId, projectId: string, rawPath: string) {
@@ -59,8 +104,11 @@ export async function createFile(
     await assertParentFolderExists(project._id, owner, parentPath);
   }
 
+  const checksum = computeChecksum(content);
+
+  let file: ProjectFileDocument;
   try {
-    return await ProjectFileModel.create({
+    file = await ProjectFileModel.create({
       project: project._id,
       owner,
       name: getBaseName(path),
@@ -68,6 +116,9 @@ export async function createFile(
       type: FileEntryType.FILE,
       content,
       language: detectLanguage(path),
+      mimeType: detectMimeType(path),
+      isBinary: isBinaryFile(path),
+      checksum,
       parentPath,
       size: Buffer.byteLength(content, 'utf8'),
       version: 1,
@@ -78,6 +129,9 @@ export async function createFile(
     }
     throw err;
   }
+
+  await recordChange(project._id, file, FileChangeType.CREATE, owner, `Created "${path}"`);
+  return file;
 }
 
 export async function createFolder(owner: Types.ObjectId, projectId: string, rawPath: string) {
@@ -89,8 +143,9 @@ export async function createFolder(owner: Types.ObjectId, projectId: string, raw
     await assertParentFolderExists(project._id, owner, parentPath);
   }
 
+  let folder: ProjectFileDocument;
   try {
-    return await ProjectFileModel.create({
+    folder = await ProjectFileModel.create({
       project: project._id,
       owner,
       name: getBaseName(path),
@@ -104,6 +159,9 @@ export async function createFolder(owner: Types.ObjectId, projectId: string, raw
     }
     throw err;
   }
+
+  await recordChange(project._id, folder, FileChangeType.CREATE, owner, `Created folder "${path}"`);
+  return folder;
 }
 
 export async function updateFileContent(
@@ -131,11 +189,21 @@ export async function updateFileContent(
     throw ApiError.conflict('This file was changed elsewhere. Reload before saving.');
   }
 
+  const checksum = computeChecksum(content);
+
+  // Nothing actually changed — skip the write, the version bump, and the history entry entirely
+  // (spec §8: "prevent unnecessary saves").
+  if (checksum === file.checksum) {
+    return file;
+  }
+
   file.content = content;
   file.size = Buffer.byteLength(content, 'utf8');
+  file.checksum = checksum;
   file.version += 1;
   await file.save();
 
+  await recordChange(project._id, file, FileChangeType.UPDATE, owner, `Updated "${path}"`);
   return file;
 }
 
@@ -147,54 +215,18 @@ export async function renameEntry(
 ) {
   const project = await assertProjectOwnership(owner, projectId);
   const path = assertSafePath(rawPath);
-
-  const entry = await ProjectFileModel.findOne({ project: project._id, owner, path });
-
-  if (!entry) {
-    throw ApiError.notFound('File or folder not found');
-  }
-
   const parentPath = getParentPath(path);
   const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
-  if (newPath === path) {
-    return entry;
+  const { entry, descendantsUpdated } = await moveOrRenameEntry(owner, project._id, path, newPath);
+
+  if (newPath !== path) {
+    const summary =
+      descendantsUpdated > 0
+        ? `Renamed "${path}" to "${newPath}" (${descendantsUpdated} items updated)`
+        : `Renamed "${path}" to "${newPath}"`;
+    await recordChange(project._id, entry, FileChangeType.RENAME, owner, summary);
   }
-
-  const conflict = await ProjectFileModel.exists({ project: project._id, owner, path: newPath });
-  if (conflict) {
-    throw ApiError.conflict('A file or folder already exists at this path');
-  }
-
-  if (entry.type === FileEntryType.FOLDER) {
-    const prefixPattern = new RegExp(`^${escapeRegExp(path)}/`);
-    const descendants = await ProjectFileModel.find({
-      project: project._id,
-      owner,
-      path: { $regex: prefixPattern },
-    });
-
-    const bulkOps = descendants.map((doc) => {
-      const updatedPath = newPath + doc.path.slice(path.length);
-      const updatedParentPath =
-        doc.parentPath === path ? newPath : (doc.parentPath?.replace(prefixPattern, `${newPath}/`) ?? null);
-
-      return {
-        updateOne: {
-          filter: { _id: doc._id },
-          update: { path: updatedPath, parentPath: updatedParentPath },
-        },
-      };
-    });
-
-    if (bulkOps.length > 0) {
-      await ProjectFileModel.bulkWrite(bulkOps);
-    }
-  }
-
-  entry.name = newName;
-  entry.path = newPath;
-  await entry.save();
 
   return entry;
 }
@@ -209,12 +241,46 @@ export async function deleteEntry(owner: Types.ObjectId, projectId: string, rawP
     throw ApiError.notFound('File or folder not found');
   }
 
+  // Capture the last known state as a version entry before it's gone, so a future snapshot/undo
+  // feature can still resurrect it.
+  await recordVersion({
+    file: entry._id,
+    project: project._id,
+    owner,
+    version: entry.version,
+    content: entry.content ?? '',
+    checksum: entry.checksum ?? computeChecksum(entry.content ?? ''),
+    changedBy: owner,
+    changeType: FileChangeType.DELETE,
+  });
+
   if (entry.type === FileEntryType.FOLDER) {
     const selfOrDescendant = new RegExp(`^${escapeRegExp(path)}(/|$)`);
-    await ProjectFileModel.deleteMany({ project: project._id, owner, path: { $regex: selfOrDescendant } });
+    const { deletedCount } = await ProjectFileModel.deleteMany({
+      project: project._id,
+      owner,
+      path: { $regex: selfOrDescendant },
+    });
+    await logActivity({
+      project: project._id,
+      user: owner,
+      file: entry._id,
+      action: FileChangeType.DELETE,
+      description: `Deleted folder "${path}" (${deletedCount} items)`,
+    });
   } else {
     await entry.deleteOne();
+    await logActivity({
+      project: project._id,
+      user: owner,
+      file: entry._id,
+      action: FileChangeType.DELETE,
+      description: `Deleted "${path}"`,
+    });
   }
+
+  workspaceCache.invalidate(project._id.toString());
+  await touchWorkspace(owner, project._id);
 }
 
 export interface FileSearchMatch {

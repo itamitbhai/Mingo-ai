@@ -47,6 +47,12 @@ Fill in:
 - `CLERK_WEBHOOK_SECRET` — from step 2 (or leave the placeholder if you skipped the webhook)
 - `CLIENT_URL` — `http://localhost:3000` for local dev
 - `OPENAI_API_KEY` — from step 3 (leave blank to run everything except AI chat)
+- `WORKSPACE_MAX_FILE_SIZE_BYTES`, `WORKSPACE_MAX_BATCH_OPERATIONS`, `WORKSPACE_MAX_PROJECT_FILES`,
+  `WORKSPACE_MAX_PATH_LENGTH`, `WORKSPACE_LOCK_TTL_MS`, `WORKSPACE_CACHE_TTL_MS` — all optional,
+  every workspace-engine limit has a sensible default (see `server/src/config/workspace.config.ts`)
+- `MAX_PLANNER_RETRIES`, `PLANNER_RATE_LIMIT_WINDOW_MS`, `PLANNER_RATE_LIMIT_MAX_REQUESTS` — all
+  optional, control the Planner Agent's correction-prompt retry budget and its (separate, stricter)
+  rate limit; same `OPENAI_API_KEY` from step 3 powers plan generation
 
 **`client/.env.local`**
 

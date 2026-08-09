@@ -11,7 +11,8 @@ import { ApiError } from '../utils/ApiError';
 import { buildPaginationMeta } from '../utils/paginate';
 import { logger } from '../utils/logger';
 import { logActivity } from './activity.service';
-import { createStarterFiles } from './files/starter-files.service';
+import { createStarterFiles } from './templates/template.service';
+import { ensureWorkspace } from './workspace/workspace.service';
 
 const SORT_MAP: Record<ProjectQueryInput['sort'], Record<string, 1 | -1>> = {
   newest: { createdAt: -1 },
@@ -67,10 +68,12 @@ export async function createProject(owner: Types.ObjectId, data: CreateProjectIn
   );
 
   try {
-    await createStarterFiles(project._id, owner, project.frontend);
+    await createStarterFiles(project._id, owner, project.frontend, project.backend);
+    await ensureWorkspace(owner, project._id, project.frontend);
   } catch (err) {
-    // The project itself was created successfully — a failed starter-file seed shouldn't fail
-    // project creation. The workspace will just start empty; the user can still create files.
+    // The project itself was created successfully — a failed starter-file/workspace seed
+    // shouldn't fail project creation. The workspace will just start empty; the user can still
+    // create files, and `ensureWorkspace` is idempotent so it will self-heal on next access.
     logger.error('project.starterFiles.failed', err);
   }
 

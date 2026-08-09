@@ -17,6 +17,25 @@ vi.mock('../project.service', () => ({
   getProjectById: vi.fn(),
 }));
 
+// The version/activity/cache/workspace side effects each mutation triggers (spec §6/§21/§36) are
+// exercised by their own unit tests — here they're stubbed out so file.service's tests stay
+// focused on file.service's own behavior.
+vi.mock('../workspace/version.service', () => ({
+  recordVersion: vi.fn(),
+}));
+
+vi.mock('../workspace/workspace-activity.service', () => ({
+  logActivity: vi.fn(),
+}));
+
+vi.mock('../workspace/workspace.service', () => ({
+  touchWorkspace: vi.fn(),
+}));
+
+vi.mock('../workspace/cache.service', () => ({
+  workspaceCache: { invalidate: vi.fn(), get: vi.fn(), set: vi.fn(), clear: vi.fn() },
+}));
+
 import { ProjectFileModel } from '../../models';
 import * as projectService from '../project.service';
 import * as fileService from './file.service';
@@ -199,6 +218,7 @@ describe('file.service', () => {
         type: FileEntryType.FOLDER,
         path: 'components',
       } as never);
+      vi.mocked(ProjectFileModel.deleteMany).mockResolvedValue({ deletedCount: 3 } as never);
 
       await fileService.deleteEntry(owner, 'p1', 'components');
 

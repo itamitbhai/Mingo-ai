@@ -1,12 +1,15 @@
 import { Schema, model, Document, Types } from 'mongoose';
 import { applyToJSON } from '../utils/applyToJSON';
 
+export type UsagePurpose = 'chat' | 'planner';
+
 export interface UsageDocument extends Document {
   _id: Types.ObjectId;
   user: Types.ObjectId;
   project: Types.ObjectId;
-  conversation: Types.ObjectId;
+  conversation?: Types.ObjectId;
   modelName: string;
+  purpose: UsagePurpose;
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
@@ -29,11 +32,15 @@ const usageSchema = new Schema<UsageDocument>(
     conversation: {
       type: Schema.Types.ObjectId,
       ref: 'Conversation',
-      required: true,
     },
     modelName: {
       type: String,
       required: true,
+    },
+    purpose: {
+      type: String,
+      enum: ['chat', 'planner'],
+      default: 'chat',
     },
     inputTokens: { type: Number, default: null },
     outputTokens: { type: Number, default: null },

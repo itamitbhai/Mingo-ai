@@ -48,10 +48,47 @@ export async function saveFileByPath(
     store.updateFile(key, { isSaving: false, saveError: true });
 
     if (error instanceof ApiError && error.status === 409) {
-      toast.error('This file was changed elsewhere. Reload before saving.');
+      toast.error('This file was changed elsewhere. Reload before saving.', {
+        action: {
+          label: 'Reload',
+          onClick: () => void reloadFileFromServer(projectId, path, getToken),
+        },
+      });
     } else {
       toast.error(error instanceof ApiError ? error.message : 'Save failed');
     }
+  }
+}
+
+/** Discards local edits and re-fetches the latest server content for a tab — the "Reload" action
+ *  on a save-conflict toast (spec §26/§43). */
+export async function reloadFileFromServer(
+  projectId: string,
+  path: string,
+  getToken: () => Promise<string | null>
+): Promise<void> {
+  const key = fileCacheKey(projectId, path);
+  const store = useFileCacheStore.getState();
+
+  try {
+    const token = await getToken();
+    const loaded = await fileService.getFileContent(projectId, path, token);
+
+    store.setFile(key, {
+      path,
+      content: loaded.content,
+      originalContent: loaded.content,
+      version: loaded.version,
+      language: loaded.language ?? detectLanguage(path),
+      isBinary: loaded.isBinary ?? false,
+      isDirty: false,
+      isLoading: false,
+      isSaving: false,
+      saveError: false,
+    });
+    toast.success('Reloaded from server');
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'Failed to reload file');
   }
 }
 
@@ -76,6 +113,7 @@ export function useFileTab(projectId: string, path: string | null) {
       originalContent: '',
       version: 0,
       language: detectLanguage(path),
+      isBinary: false,
       isDirty: false,
       isLoading: true,
       isSaving: false,
@@ -94,6 +132,7 @@ export function useFileTab(projectId: string, path: string | null) {
           originalContent: loaded.content,
           version: loaded.version,
           language: loaded.language ?? detectLanguage(path),
+          isBinary: loaded.isBinary ?? false,
           isDirty: false,
           isLoading: false,
           isSaving: false,

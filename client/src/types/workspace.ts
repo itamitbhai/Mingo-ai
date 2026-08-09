@@ -21,6 +21,7 @@ export interface OpenFileState {
   originalContent: string;
   version: number;
   language: string;
+  isBinary: boolean;
   isDirty: boolean;
   isLoading: boolean;
   isSaving: boolean;

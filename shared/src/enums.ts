@@ -106,3 +106,159 @@ export const FileEntryType = {
   FOLDER: 'folder',
 } as const;
 export type FileEntryType = (typeof FileEntryType)[keyof typeof FileEntryType];
+
+export const WorkspaceStatus = {
+  INITIALIZING: 'initializing',
+  READY: 'ready',
+  SAVING: 'saving',
+  ERROR: 'error',
+  ARCHIVED: 'archived',
+} as const;
+export type WorkspaceStatus = (typeof WorkspaceStatus)[keyof typeof WorkspaceStatus];
+
+export const FileChangeType = {
+  CREATE: 'create',
+  UPDATE: 'update',
+  RENAME: 'rename',
+  MOVE: 'move',
+  RESTORE: 'restore',
+  DELETE: 'delete',
+} as const;
+export type FileChangeType = (typeof FileChangeType)[keyof typeof FileChangeType];
+
+export const WorkspaceActivityAction = {
+  CREATE: 'create',
+  UPDATE: 'update',
+  DELETE: 'delete',
+  RENAME: 'rename',
+  MOVE: 'move',
+  RESTORE: 'restore',
+  SNAPSHOT: 'snapshot',
+  WORKSPACE_INIT: 'workspace_init',
+} as const;
+export type WorkspaceActivityAction =
+  (typeof WorkspaceActivityAction)[keyof typeof WorkspaceActivityAction];
+
+export const LockType = {
+  USER: 'user',
+  AGENT: 'agent',
+  SYSTEM: 'system',
+} as const;
+export type LockType = (typeof LockType)[keyof typeof LockType];
+
+export const BatchOperationType = {
+  CREATE: 'create',
+  UPDATE: 'update',
+  DELETE: 'delete',
+  RENAME: 'rename',
+  MOVE: 'move',
+} as const;
+export type BatchOperationType = (typeof BatchOperationType)[keyof typeof BatchOperationType];
+
+/** Distinct from the billing `PlanType` enum above — this is the status of an AI-generated
+ *  `ProjectPlan` document, not a subscription tier. */
+export const ProjectPlanStatus = {
+  DRAFT: 'draft',
+  GENERATING: 'generating',
+  READY: 'ready',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  FAILED: 'failed',
+  EXECUTING: 'executing',
+  COMPLETED: 'completed',
+  CANCELLED: 'cancelled',
+} as const;
+export type ProjectPlanStatus = (typeof ProjectPlanStatus)[keyof typeof ProjectPlanStatus];
+
+export const TaskPriority = {
+  CRITICAL: 'critical',
+  HIGH: 'high',
+  MEDIUM: 'medium',
+  LOW: 'low',
+} as const;
+export type TaskPriority = (typeof TaskPriority)[keyof typeof TaskPriority];
+
+export const TaskComplexity = {
+  SMALL: 'small',
+  MEDIUM: 'medium',
+  LARGE: 'large',
+  COMPLEX: 'complex',
+} as const;
+export type TaskComplexity = (typeof TaskComplexity)[keyof typeof TaskComplexity];
+
+export const TaskType = {
+  SETUP: 'setup',
+  FRONTEND: 'frontend',
+  BACKEND: 'backend',
+  DATABASE: 'database',
+  AUTHENTICATION: 'authentication',
+  INTEGRATION: 'integration',
+  TESTING: 'testing',
+  CONFIGURATION: 'configuration',
+  DOCUMENTATION: 'documentation',
+  SECURITY: 'security',
+  DEPLOYMENT: 'deployment',
+} as const;
+export type TaskType = (typeof TaskType)[keyof typeof TaskType];
+
+/** How a technology/requirement entry was determined — never let an inferred choice be displayed
+ *  or treated as something the user explicitly asked for. */
+export const TechSource = {
+  USER_SELECTED: 'user_selected',
+  INFERRED: 'inferred',
+  RECOMMENDED: 'recommended',
+} as const;
+export type TechSource = (typeof TechSource)[keyof typeof TechSource];
+
+/** Future agents a task could be handed to. None of these agents exist yet (Phase 5 is planning
+ *  only) — this just keeps the schema forward-compatible. */
+export const RecommendedAgent = {
+  PLANNER: 'planner',
+  FRONTEND: 'frontend',
+  BACKEND: 'backend',
+  DATABASE: 'database',
+  TESTING: 'testing',
+  DEVOPS: 'devops',
+  SECURITY: 'security',
+} as const;
+export type RecommendedAgent = (typeof RecommendedAgent)[keyof typeof RecommendedAgent];
+
+export const RiskSeverity = {
+  LOW: 'low',
+  MEDIUM: 'medium',
+  HIGH: 'high',
+  CRITICAL: 'critical',
+} as const;
+export type RiskSeverity = (typeof RiskSeverity)[keyof typeof RiskSeverity];
+
+export const NonFunctionalCategory = {
+  PERFORMANCE: 'performance',
+  SECURITY: 'security',
+  SCALABILITY: 'scalability',
+  ACCESSIBILITY: 'accessibility',
+  RESPONSIVENESS: 'responsiveness',
+  MAINTAINABILITY: 'maintainability',
+  OBSERVABILITY: 'observability',
+  RELIABILITY: 'reliability',
+} as const;
+export type NonFunctionalCategory =
+  (typeof NonFunctionalCategory)[keyof typeof NonFunctionalCategory];
+
+export const ArchitectureNodeType = {
+  FRONTEND: 'frontend',
+  API: 'api',
+  SERVICE: 'service',
+  DATABASE: 'database',
+  AUTH: 'auth',
+  EXTERNAL: 'external',
+  STORAGE: 'storage',
+  DEPLOYMENT: 'deployment',
+} as const;
+export type ArchitectureNodeType = (typeof ArchitectureNodeType)[keyof typeof ArchitectureNodeType];
+
+export const DatabaseRelationType = {
+  ONE_TO_ONE: 'one-to-one',
+  ONE_TO_MANY: 'one-to-many',
+  MANY_TO_MANY: 'many-to-many',
+} as const;
+export type DatabaseRelationType = (typeof DatabaseRelationType)[keyof typeof DatabaseRelationType];

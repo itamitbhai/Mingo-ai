@@ -60,6 +60,14 @@ export function MonacoEditorPane({ file, onChange, onMount }: MonacoEditorPanePr
     return <LoadingState />;
   }
 
+  if (file.isBinary) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Binary file preview is not available.
+      </div>
+    );
+  }
+
   return (
     <Editor
       path={file.path}

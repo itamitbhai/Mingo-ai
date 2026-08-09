@@ -1,7 +1,15 @@
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { env } from '../../../config/env';
-import { AIProviderAdapter, AIProviderError, ChatMessage, StreamChatParams, StreamChunk } from '../ai.types';
+import {
+  AIProviderAdapter,
+  AIProviderError,
+  ChatMessage,
+  CompleteParams,
+  CompleteResult,
+  StreamChatParams,
+  StreamChunk,
+} from '../ai.types';
 
 let cachedClient: OpenAI | null = null;
 
@@ -81,7 +89,40 @@ async function* streamChat({ messages, model, signal }: StreamChatParams): Async
   }
 }
 
+async function complete({ messages, model, signal, responseFormat }: CompleteParams): Promise<CompleteResult> {
+  const client = getClient();
+
+  try {
+    const response = await client.chat.completions.create(
+      {
+        model,
+        messages: toOpenAIMessages(messages),
+        stream: false,
+        response_format: responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
+      },
+      { signal }
+    );
+
+    const content = response.choices[0]?.message?.content ?? '';
+
+    return {
+      content,
+      usage: {
+        inputTokens: response.usage?.prompt_tokens ?? null,
+        outputTokens: response.usage?.completion_tokens ?? null,
+        totalTokens: response.usage?.total_tokens ?? null,
+      },
+    };
+  } catch (err) {
+    if (signal.aborted) {
+      throw err;
+    }
+    throw normalizeError(err);
+  }
+}
+
 export const openaiProvider: AIProviderAdapter = {
   name: 'openai',
   streamChat,
+  complete,
 };

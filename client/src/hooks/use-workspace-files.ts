@@ -7,6 +7,7 @@ import type { IFileTreeNode } from 'shared';
 
 import { ApiError } from '@/lib/api';
 import * as fileService from '@/services/files/file.service';
+import * as workspaceService from '@/services/workspace/workspace.service';
 import { useWorkspaceUIStore } from '@/store/use-workspace-ui-store';
 
 export function useWorkspaceFiles(projectId: string, initialTree: IFileTreeNode[]) {
@@ -69,6 +70,20 @@ export function useWorkspaceFiles(projectId: string, initialTree: IFileTreeNode[
     }
   }
 
+  async function move(path: string, destinationPath: string) {
+    try {
+      const token = await getToken();
+      await workspaceService.moveEntry(projectId, { path, destinationPath }, token);
+      renamePath(projectId, path, destinationPath);
+      toast.success('Moved successfully');
+      await refresh();
+      return true;
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Failed to move');
+      return false;
+    }
+  }
+
   async function remove(path: string) {
     try {
       const token = await getToken();
@@ -83,5 +98,5 @@ export function useWorkspaceFiles(projectId: string, initialTree: IFileTreeNode[
     }
   }
 
-  return { tree, isRefreshing, refresh, createFile, createFolder, rename, remove };
+  return { tree, isRefreshing, refresh, createFile, createFolder, rename, move, remove };
 }

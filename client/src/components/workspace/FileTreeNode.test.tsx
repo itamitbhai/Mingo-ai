@@ -9,6 +9,7 @@ function buildActions(overrides: Partial<FileTreeActions> = {}): FileTreeActions
     onToggleFolder: vi.fn(),
     onCreate: vi.fn(),
     onRename: vi.fn(),
+    onMove: vi.fn(),
     onDelete: vi.fn(),
     onCopyPath: vi.fn(),
     onAskAI: vi.fn(),

@@ -11,9 +11,15 @@ export interface ProjectFileDocument extends Document {
   type: FileEntryType;
   content: string;
   language?: string;
+  mimeType?: string;
+  isBinary: boolean;
+  checksum?: string;
   parentPath: string | null;
   size: number;
   version: number;
+  dependencies: string[];
+  lastAnalyzedAt?: Date;
+  analysisStatus?: string;
   metadata?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -56,6 +62,16 @@ const projectFileSchema = new Schema<ProjectFileDocument>(
     language: {
       type: String,
     },
+    mimeType: {
+      type: String,
+    },
+    isBinary: {
+      type: Boolean,
+      default: false,
+    },
+    checksum: {
+      type: String,
+    },
     parentPath: {
       type: String,
       default: null,
@@ -67,6 +83,16 @@ const projectFileSchema = new Schema<ProjectFileDocument>(
     version: {
       type: Number,
       default: 1,
+    },
+    dependencies: {
+      type: [String],
+      default: undefined,
+    },
+    lastAnalyzedAt: {
+      type: Date,
+    },
+    analysisStatus: {
+      type: String,
     },
     metadata: {
       type: Schema.Types.Mixed,

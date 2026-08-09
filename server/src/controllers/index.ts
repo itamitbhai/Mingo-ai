@@ -6,3 +6,5 @@ export * as webhookController from './webhook.controller';
 export * as conversationController from './conversation.controller';
 export * as messageController from './message.controller';
 export * as fileController from './file.controller';
+export * as workspaceController from './workspace.controller';
+export * as planController from './plan.controller';

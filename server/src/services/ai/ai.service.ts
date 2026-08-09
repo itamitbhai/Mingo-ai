@@ -2,7 +2,7 @@ import { AIProvider as AIProviderEnum } from 'shared';
 import { env } from '../../config/env';
 import { openaiProvider } from './providers/openai.provider';
 import { buildSystemPrompt, ProjectContext } from './prompts/system.prompt';
-import { AIProviderAdapter, AIProviderError, ChatMessage, StreamChunk } from './ai.types';
+import { AIProviderAdapter, AIProviderError, ChatMessage, CompleteResult, StreamChunk } from './ai.types';
 
 export const HISTORY_WINDOW = 20;
 export const TITLE_MAX_LENGTH = 60;
@@ -37,6 +37,31 @@ export async function* generateReply({
   const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, ...history];
 
   yield* provider.streamChat({ messages, model: env.AI_MODEL, signal });
+}
+
+export interface GenerateStructuredParams {
+  systemPrompt: string;
+  userPrompt: string;
+  signal: AbortSignal;
+}
+
+/**
+ * One non-streamed, JSON-mode completion — used by the Planner Agent, which needs a single
+ * reliable structured response rather than a token stream. Goes through the same provider
+ * abstraction as `generateReply`; callers (agents) never talk to a provider or OpenAI directly.
+ */
+export async function generateStructuredCompletion({
+  systemPrompt,
+  userPrompt,
+  signal,
+}: GenerateStructuredParams): Promise<CompleteResult> {
+  const provider = getProvider();
+  const messages: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+
+  return provider.complete({ messages, model: env.AI_MODEL, signal, responseFormat: 'json_object' });
 }
 
 export function getModelName(): string {

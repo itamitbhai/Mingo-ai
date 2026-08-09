@@ -110,6 +110,97 @@ If it no longer matches (someone/something else saved in between), the request f
 the message "This file was changed elsewhere. Reload before saving." — omit `expectedVersion` to
 save unconditionally.
 
+## Workspace engine
+
+Built on top of the files/folders endpoints above — every mutation there also produces the version
+history, activity log, and cache invalidation this section's endpoints read from. Same ownership
+model: every path/id is scoped to `{ project, owner }`, so cross-project and cross-user access
+return `404`, not `403`.
+
+| Method | Path                                                        | Body / Query                     | Description |
+| ------ | ------------------------------------------------------------ | ---------------------------------- | ------------- |
+| GET    | `/projects/:projectId/workspace`                              | —                                 | Get (or lazily create) the project's `ProjectWorkspace` |
+| GET    | `/projects/:projectId/workspace/tree`                         | —                                 | Cached file tree (same shape as `/files`, backed by an in-memory cache) |
+| GET    | `/projects/:projectId/workspace/manifest`                     | —                                 | Framework/language/package manager, file+folder counts, entry points, `package.json` deps/scripts — all computed live from the project's actual files |
+| GET    | `/projects/:projectId/workspace/activity`                     | `cursor?, limit`                  | Cursor-paginated `WorkspaceActivity` log (create/update/delete/rename/move/restore/snapshot/workspace_init) |
+| GET    | `/projects/:projectId/workspace/versions`                     | `path, cursor?, limit`            | Cursor-paginated version history for one file (content omitted — see below) |
+| GET    | `/projects/:projectId/workspace/versions/:versionId`          | —                                 | One version's full content, for the diff viewer |
+| GET    | `/projects/:projectId/workspace/snapshots`                    | `page?, limit?`                   | Paginated list of snapshots (metadata only) |
+| POST   | `/projects/:projectId/workspace/snapshots`                    | `{ name, description? }`          | Create a snapshot of the current workspace state |
+| POST   | `/projects/:projectId/workspace/snapshots/:snapshotId/restore`| —                                 | Restore a snapshot — always creates an automatic backup snapshot of the current state first |
+| POST   | `/projects/:projectId/workspace/preview`                      | `{ operations: BatchOperation[] }`| Validates a batch of operations against the current state without writing anything |
+| POST   | `/projects/:projectId/workspace/batch`                        | `{ operations: BatchOperation[] }`| Applies a batch as one logical change — rejects the whole batch if any operation is invalid |
+| PATCH  | `/projects/:projectId/workspace/move`                         | `{ path, destinationPath }`       | Move a file or folder to an arbitrary destination (as opposed to `/files/rename`, which only changes the leaf name within the same parent) |
+
+A `BatchOperation` is one of:
+
+```ts
+{ type: 'create'; path: string; content?: string }
+{ type: 'update'; path: string; content: string }
+{ type: 'delete'; path: string }
+{ type: 'rename'; path: string; newName: string }
+{ type: 'move'; path: string; destinationPath: string }
+```
+
+`/preview` and `/batch` share the same validation: unsafe paths, oversized content, conflicting
+targets, and duplicate operations within the same batch are all reported before anything is written.
+Missing parent folders for a `create`/`move` destination are synthesized automatically (an AI agent
+can create `src/auth/auth.service.ts` without first creating `src/auth`). The preview response is:
+
+```jsonc
+{
+  "valid": false,
+  "operations": [{ "type": "create", "path": "src/auth/auth.service.ts", "action": "CREATE" }],
+  "warnings": [],
+  "errors": [],
+  "conflicts": ["\"src/auth/auth.service.ts\" already exists"]
+}
+```
+
+**Checksums**: every `ProjectFile` carries a SHA-256 `checksum` of its content, used to detect real
+changes (skip a no-op save), verify snapshot/version integrity, and support future sync — never as
+authentication.
+
+## Planner Agent
+
+Turns a natural-language request into a structured, versioned `ProjectPlan` — planning only, never
+code generation, file writes, or command execution. Same ownership model as everything else: every
+`planId` is scoped to `{project, owner}`.
+
+| Method | Path                                              | Body / Query           | Description |
+| ------ | -------------------------------------------------- | ------------------------ | ------------- |
+| POST   | `/projects/:projectId/plans`                       | `{ prompt, conversationId? }` (SSE) | Generate a new plan — streams progress, ends with `done`/`error` |
+| GET    | `/projects/:projectId/plans`                       | `page?, limit?`          | Paginated plan history, newest version first |
+| GET    | `/projects/:projectId/plans/:planId`               | —                        | Get one plan (full) |
+| POST   | `/projects/:projectId/plans/:planId/regenerate`    | `{ prompt? }` (SSE)      | Regenerate — reuses the original prompt if none given; response includes the new plan, the previous plan, and a diff |
+| PATCH  | `/projects/:projectId/plans/:planId`                | `{ status? }` or `{ featureEdits?, taskEdits? }` | Approve/reject, or edit specific feature/task fields |
+| DELETE | `/projects/:projectId/plans/:planId`                | —                        | Delete — only allowed when `status` is `draft`, `rejected`, or `failed` |
+
+**Generation is rate-limited** separately from chat (`PLANNER_RATE_LIMIT_MAX_REQUESTS` per
+`PLANNER_RATE_LIMIT_WINDOW_MS`, default 5 per 10 minutes) — it's a more expensive, multi-attempt AI
+call. Both `POST /plans` and `POST /plans/:planId/regenerate` are SSE (`text/event-stream`),
+consumed the same way as chat messages (`fetch` + `ReadableStream`, not `EventSource`). Each frame
+is `data: <json>\n\n`, where the JSON is one of:
+
+```jsonc
+{ "type": "stage", "stage": "loading_context", "label": "Loading project context…" }
+{ "type": "stage", "stage": "generating", "label": "Generating the plan…", "attempt": 1 }
+{ "type": "stage", "stage": "retrying", "label": "Fixing plan issues (attempt 2 of 3)…", "attempt": 2 }
+{ "type": "stage", "stage": "saving", "label": "Saving the plan…" }
+{ "type": "done", "plan": { /* IProjectPlan */ }, "previousPlan": { /* only on regenerate */ }, "diff": { /* only on regenerate */ } }
+{ "type": "error", "message": "..." }
+```
+
+**Plan status**: `draft → generating → ready → approved | rejected`, plus `failed` (the AI could
+not produce a valid plan after retries — the plan is still persisted with an `error` message, no
+structured content) and `executing`/`completed`/`cancelled` (reserved for a future execution
+phase — Phase 5 never transitions a plan into these). Approving a plan only sets its status; it
+never writes files, runs commands, or triggers any other agent.
+
+**Editing** (`PATCH`) only accepts a small whitelist: a feature's `title`/`description`/`priority`,
+or a task's `title`/`description`/`acceptanceCriteria`, addressed by `id` — never a full plan
+replacement. The edited plan is re-validated in full before saving.
+
 ## Profile
 
 | Method | Path        | Body                  | Description                                    |

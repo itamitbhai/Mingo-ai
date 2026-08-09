@@ -18,6 +18,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   AI_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   AI_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  MAX_PLANNER_RETRIES: z.coerce.number().int().min(0).default(2),
+  PLANNER_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  PLANNER_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
 });
 
 function loadEnv() {

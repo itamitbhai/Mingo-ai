@@ -2,13 +2,16 @@ import { z } from 'zod';
 import {
   AuthOption,
   BackendStack,
+  BatchOperationType,
   DatabaseOption,
   DeploymentOption,
   FrontendStack,
   ProjectStatus,
   StylingOption,
+  TaskPriority,
   Theme,
 } from './enums';
+import { MAX_BATCH_OPERATIONS } from './constants';
 import { isValidRelativePath, normalizeRelativePath } from './utils';
 
 const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
@@ -188,3 +191,150 @@ export const fileSearchQuerySchema = z.object({
 });
 
 export type FileSearchQueryInput = z.infer<typeof fileSearchQuerySchema>;
+
+export const moveEntrySchema = z.object({
+  path: relativePathSchema,
+  destinationPath: relativePathSchema,
+});
+
+export type MoveEntryInput = z.infer<typeof moveEntrySchema>;
+
+export const createSnapshotSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(100, 'Name is too long'),
+  description: z.string().trim().max(500, 'Description is too long').optional(),
+});
+
+export type CreateSnapshotInput = z.infer<typeof createSnapshotSchema>;
+
+export const activityQuerySchema = z.object({
+  cursor: z.string().regex(OBJECT_ID_REGEX, 'Invalid cursor').optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export type ActivityQueryInput = z.infer<typeof activityQuerySchema>;
+
+export const versionsQuerySchema = z.object({
+  path: relativePathSchema,
+  cursor: z.string().regex(OBJECT_ID_REGEX, 'Invalid cursor').optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export type VersionsQueryInput = z.infer<typeof versionsQuerySchema>;
+
+export const snapshotsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export type SnapshotsQueryInput = z.infer<typeof snapshotsQuerySchema>;
+
+const batchCreateOpSchema = z.object({
+  type: z.literal(BatchOperationType.CREATE),
+  path: relativePathSchema,
+  content: z.string().max(MAX_FILE_CONTENT_LENGTH).optional(),
+});
+
+const batchUpdateOpSchema = z.object({
+  type: z.literal(BatchOperationType.UPDATE),
+  path: relativePathSchema,
+  content: z.string().max(MAX_FILE_CONTENT_LENGTH),
+});
+
+const batchDeleteOpSchema = z.object({
+  type: z.literal(BatchOperationType.DELETE),
+  path: relativePathSchema,
+});
+
+const batchRenameOpSchema = z.object({
+  type: z.literal(BatchOperationType.RENAME),
+  path: relativePathSchema,
+  newName: fileNameSchema,
+});
+
+const batchMoveOpSchema = z.object({
+  type: z.literal(BatchOperationType.MOVE),
+  path: relativePathSchema,
+  destinationPath: relativePathSchema,
+});
+
+export const batchOperationSchema = z.discriminatedUnion('type', [
+  batchCreateOpSchema,
+  batchUpdateOpSchema,
+  batchDeleteOpSchema,
+  batchRenameOpSchema,
+  batchMoveOpSchema,
+]);
+
+export type BatchOperationInput = z.infer<typeof batchOperationSchema>;
+
+export const batchOperationsSchema = z.object({
+  operations: z
+    .array(batchOperationSchema)
+    .min(1, 'At least one operation is required')
+    .max(MAX_BATCH_OPERATIONS, `A batch may contain at most ${MAX_BATCH_OPERATIONS} operations`),
+});
+
+export type BatchOperationsInput = z.infer<typeof batchOperationsSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Planner Agent
+// ---------------------------------------------------------------------------
+
+export const PLAN_PROMPT_MIN_LENGTH = 10;
+export const PLAN_PROMPT_MAX_LENGTH = 2000;
+
+export const generatePlanSchema = z.object({
+  prompt: z
+    .string()
+    .trim()
+    .min(PLAN_PROMPT_MIN_LENGTH, `Describe what you want to build in at least ${PLAN_PROMPT_MIN_LENGTH} characters`)
+    .max(PLAN_PROMPT_MAX_LENGTH, `Keep the request under ${PLAN_PROMPT_MAX_LENGTH} characters`),
+  conversationId: z.string().regex(OBJECT_ID_REGEX, 'Invalid conversation id').optional(),
+});
+
+export type GeneratePlanInput = z.infer<typeof generatePlanSchema>;
+
+export const regeneratePlanSchema = z.object({
+  prompt: z
+    .string()
+    .trim()
+    .min(PLAN_PROMPT_MIN_LENGTH)
+    .max(PLAN_PROMPT_MAX_LENGTH)
+    .optional(),
+});
+
+export type RegeneratePlanInput = z.infer<typeof regeneratePlanSchema>;
+
+const featureEditSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().min(1).max(2000).optional(),
+  priority: z.enum(enumValues(TaskPriority)).optional(),
+});
+
+const taskEditSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(160).optional(),
+  description: z.string().trim().min(1).max(2000).optional(),
+  acceptanceCriteria: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+});
+
+export const updatePlanSchema = z
+  .object({
+    status: z.enum(['approved', 'rejected']).optional(),
+    featureEdits: z.array(featureEditSchema).max(50).optional(),
+    taskEdits: z.array(taskEditSchema).max(200).optional(),
+  })
+  .refine(
+    (data) => Boolean(data.status) || Boolean(data.featureEdits?.length) || Boolean(data.taskEdits?.length),
+    { message: 'Provide a status change or at least one feature/task edit' }
+  );
+
+export type UpdatePlanInput = z.infer<typeof updatePlanSchema>;
+
+export const plansQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+export type PlansQueryInput = z.infer<typeof plansQuerySchema>;

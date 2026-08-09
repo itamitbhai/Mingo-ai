@@ -19,9 +19,24 @@ export interface StreamChatParams {
   signal: AbortSignal;
 }
 
+export interface CompleteParams {
+  messages: ChatMessage[];
+  model: string;
+  signal: AbortSignal;
+  /** 'json_object' asks the provider to guarantee syntactically valid JSON output — used by the
+   *  Planner Agent, which needs one structured response rather than a token stream. */
+  responseFormat: 'json_object';
+}
+
+export interface CompleteResult {
+  content: string;
+  usage: TokenUsage;
+}
+
 export interface AIProviderAdapter {
   readonly name: string;
   streamChat(params: StreamChatParams): AsyncGenerator<StreamChunk>;
+  complete(params: CompleteParams): Promise<CompleteResult>;
 }
 
 export type AIErrorCode = 'not_configured' | 'auth' | 'rate_limit' | 'unavailable' | 'timeout' | 'unknown';

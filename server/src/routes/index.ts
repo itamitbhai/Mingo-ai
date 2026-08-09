@@ -5,6 +5,8 @@ import settingsRoutes from './settings.routes';
 import dashboardRoutes from './dashboard.routes';
 import { conversationsRouter, projectConversationsRouter } from './conversation.routes';
 import { fileRouter, folderRouter } from './file.routes';
+import { workspaceRouter } from './workspace.routes';
+import { planRouter } from './plan.routes';
 
 const router = Router();
 
@@ -16,6 +18,8 @@ router.use('/projects', projectRoutes);
 router.use('/projects/:projectId/conversations', projectConversationsRouter);
 router.use('/projects/:projectId/files', fileRouter);
 router.use('/projects/:projectId/folders', folderRouter);
+router.use('/projects/:projectId/workspace', workspaceRouter);
+router.use('/projects/:projectId/plans', planRouter);
 router.use('/profile', profileRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/dashboard', dashboardRoutes);

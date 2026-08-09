@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ChevronRight, Copy, FilePlus, FolderPlus, Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, FilePlus, FolderPlus, Move, Pencil, Sparkles, Trash2 } from 'lucide-react';
 import { FileEntryType, type IFileTreeNode } from 'shared';
 
 import {
@@ -18,6 +18,7 @@ export interface FileTreeActions {
   onToggleFolder: (path: string) => void;
   onCreate: (parentPath: string, type: FileEntryType) => void;
   onRename: (node: IFileTreeNode) => void;
+  onMove: (node: IFileTreeNode) => void;
   onDelete: (node: IFileTreeNode) => void;
   onCopyPath: (path: string) => void;
   onAskAI: (node: IFileTreeNode) => void;
@@ -98,6 +99,9 @@ export function FileTreeNode({
           )}
           <ContextMenuItem onSelect={() => actions.onRename(node)}>
             <Pencil className="size-4" /> Rename
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => actions.onMove(node)}>
+            <Move className="size-4" /> Move
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => actions.onCopyPath(node.path)}>
             <Copy className="size-4" /> Copy Path

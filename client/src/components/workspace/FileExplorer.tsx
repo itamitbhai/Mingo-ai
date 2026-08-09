@@ -11,6 +11,7 @@ import type { AIContextAttachment } from '@/types/workspace';
 import { CreateEntryDialog, type CreateEntryState } from './CreateEntryDialog';
 import { DeleteEntryDialog } from './DeleteEntryDialog';
 import { FileTreeNode } from './FileTreeNode';
+import { MoveEntryDialog } from './MoveEntryDialog';
 import { RenameEntryDialog } from './RenameEntryDialog';
 
 interface FileExplorerProps {
@@ -21,6 +22,7 @@ interface FileExplorerProps {
   onCreateFile: (path: string) => Promise<boolean>;
   onCreateFolder: (path: string) => Promise<boolean>;
   onRename: (path: string, newName: string) => Promise<boolean>;
+  onMove: (path: string, destinationPath: string) => Promise<boolean>;
   onDelete: (path: string) => Promise<boolean>;
   onAskAI: (attachment: AIContextAttachment) => void;
 }
@@ -33,6 +35,7 @@ export function FileExplorer({
   onCreateFile,
   onCreateFolder,
   onRename,
+  onMove,
   onDelete,
   onAskAI,
 }: FileExplorerProps) {
@@ -41,6 +44,7 @@ export function FileExplorer({
 
   const [createState, setCreateState] = useState<CreateEntryState | null>(null);
   const [renameState, setRenameState] = useState<IFileTreeNode | null>(null);
+  const [moveState, setMoveState] = useState<IFileTreeNode | null>(null);
   const [deleteState, setDeleteState] = useState<IFileTreeNode | null>(null);
 
   async function handleCopyPath(path: string) {
@@ -93,6 +97,7 @@ export function FileExplorer({
               onToggleFolder={(path) => toggleFolder(projectId, path)}
               onCreate={(parentPath, type) => setCreateState({ parentPath, type })}
               onRename={setRenameState}
+              onMove={setMoveState}
               onDelete={setDeleteState}
               onCopyPath={handleCopyPath}
               onAskAI={(fileNode) => {
@@ -126,6 +131,17 @@ export function FileExplorer({
           if (!renameState) return false;
           const ok = await onRename(renameState.path, newName);
           if (ok) setRenameState(null);
+          return ok;
+        }}
+      />
+
+      <MoveEntryDialog
+        node={moveState}
+        onOpenChange={(open) => !open && setMoveState(null)}
+        onSubmit={async (destinationPath) => {
+          if (!moveState) return false;
+          const ok = await onMove(moveState.path, destinationPath);
+          if (ok) setMoveState(null);
           return ok;
         }}
       />

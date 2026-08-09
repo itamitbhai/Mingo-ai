@@ -76,3 +76,51 @@ export function detectLanguage(filename: string): string {
   const ext = base.slice(dotIndex + 1).toLowerCase();
   return EXTENSION_LANGUAGE_MAP[ext] ?? 'plaintext';
 }
+
+const EXTENSION_MIME_MAP: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  ico: 'image/x-icon',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+  pdf: 'application/pdf',
+  zip: 'application/zip',
+  gz: 'application/gzip',
+  tar: 'application/x-tar',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
+  ttf: 'font/ttf',
+  otf: 'font/otf',
+  eot: 'application/vnd.ms-fontobject',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  wasm: 'application/wasm',
+};
+
+/** Extensions whose content is not safely editable as UTF-8 text (SVG/XML excluded — treated as text). */
+const BINARY_EXTENSIONS = new Set(Object.keys(EXTENSION_MIME_MAP).filter((ext) => ext !== 'svg'));
+
+/** Maps a filename to a MIME type. Falls back to `text/plain` for anything unrecognized. */
+export function detectMimeType(filename: string): string {
+  const base = filename.split('/').pop() ?? filename;
+  const dotIndex = base.lastIndexOf('.');
+  if (dotIndex <= 0) return 'text/plain';
+
+  const ext = base.slice(dotIndex + 1).toLowerCase();
+  return EXTENSION_MIME_MAP[ext] ?? 'text/plain';
+}
+
+/** True when a filename's extension is a known binary format that Monaco should not try to edit as text. */
+export function isBinaryFile(filename: string): boolean {
+  const base = filename.split('/').pop() ?? filename;
+  const dotIndex = base.lastIndexOf('.');
+  if (dotIndex <= 0) return false;
+
+  const ext = base.slice(dotIndex + 1).toLowerCase();
+  return BINARY_EXTENSIONS.has(ext);
+}

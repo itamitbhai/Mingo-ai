@@ -1,16 +1,36 @@
 'use client';
 
 import Link from 'next/link';
-import { AlertCircle, Loader2, MessageSquare, PanelBottom, PanelLeft, Save, Settings, Sparkles } from 'lucide-react';
+import {
+  History,
+  ListChecks,
+  MessageSquare,
+  PanelBottom,
+  PanelLeft,
+  RefreshCw,
+  Save,
+  Settings,
+  Sparkles,
+  Camera,
+  Wand2,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import type { FileStatus } from '@/types/workspace';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import type { WorkspaceUiStatus } from '@/store/use-workspace-store';
+import { WorkspaceStatusBadge } from './WorkspaceStatusBadge';
 
 interface WorkspaceHeaderProps {
   projectId: string;
   projectName: string;
-  saveStatus: FileStatus;
+  workspaceStatus: WorkspaceUiStatus;
+  dirtyCount: number;
   isExplorerOpen: boolean;
   isAIChatOpen: boolean;
   isBottomPanelOpen: boolean;
@@ -19,21 +39,17 @@ interface WorkspaceHeaderProps {
   onToggleBottomPanel: () => void;
   onSave: () => void;
   onOpenSettings: () => void;
+  onRefreshWorkspace: () => void;
+  onOpenSnapshots: () => void;
+  onOpenHistory: () => void;
+  onOpenBatchOperations: () => void;
 }
-
-const STATUS_LABEL: Record<FileStatus, string> = {
-  idle: 'No file open',
-  loading: 'Loading…',
-  saving: 'Saving…',
-  saved: 'Saved',
-  error: 'Save failed',
-  conflict: 'Conflict — reload',
-};
 
 export function WorkspaceHeader({
   projectId,
   projectName,
-  saveStatus,
+  workspaceStatus,
+  dirtyCount,
   isExplorerOpen,
   isAIChatOpen,
   isBottomPanelOpen,
@@ -42,6 +58,10 @@ export function WorkspaceHeader({
   onToggleBottomPanel,
   onSave,
   onOpenSettings,
+  onRefreshWorkspace,
+  onOpenSnapshots,
+  onOpenHistory,
+  onOpenBatchOperations,
 }: WorkspaceHeaderProps) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
@@ -59,13 +79,36 @@ export function WorkspaceHeader({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
-          {saveStatus === 'saving' && <Loader2 className="size-3 animate-spin" />}
-          {saveStatus === 'error' && <AlertCircle className="size-3 text-destructive" />}
-          <span className={cn(saveStatus === 'conflict' && 'text-destructive')}>
-            {STATUS_LABEL[saveStatus]}
-          </span>
-        </span>
+        <WorkspaceStatusBadge status={workspaceStatus} dirtyCount={dirtyCount} />
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm">
+              Workspace
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem asChild>
+              <Link href={`/projects/${projectId}/plan`}>
+                <Wand2 className="size-4" /> Plan with Mingo
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onRefreshWorkspace}>
+              <RefreshCw className="size-4" /> Refresh
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenSnapshots}>
+              <Camera className="size-4" /> Snapshots
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenHistory}>
+              <History className="size-4" /> History
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenBatchOperations}>
+              <ListChecks className="size-4" /> Batch Operations
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <Button
           variant="ghost"
           size="icon"

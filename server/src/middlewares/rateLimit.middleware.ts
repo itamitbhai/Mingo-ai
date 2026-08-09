@@ -75,3 +75,11 @@ export const aiMessageRateLimiter = createRateLimiter({
   max: env.AI_RATE_LIMIT_MAX_REQUESTS,
   message: 'You are sending messages too quickly. Please wait a moment and try again.',
 });
+
+/** Plan generation is an expensive, multi-attempt AI call — rate-limited separately and more
+ *  tightly than a single chat message (spec §59). */
+export const plannerRateLimiter = createRateLimiter({
+  windowMs: env.PLANNER_RATE_LIMIT_WINDOW_MS,
+  max: env.PLANNER_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are generating plans too quickly. Please wait a few minutes and try again.',
+});
