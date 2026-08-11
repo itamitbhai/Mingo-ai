@@ -9,6 +9,7 @@ import { workspaceRouter } from './workspace.routes';
 import { planRouter } from './plan.routes';
 import { taskRouter } from './task.routes';
 import { frontendAgentRouter } from './frontend-agent.routes';
+import { databaseRouter } from './database.routes';
 import { autopilotRouter } from './autopilot.routes';
 
 const router = Router();
@@ -25,6 +26,7 @@ router.use('/projects/:projectId/workspace/ai', frontendAgentRouter);
 router.use('/projects/:projectId/workspace', workspaceRouter);
 router.use('/projects/:projectId/plans', planRouter);
 router.use('/projects/:projectId/plans/:planId/tasks', taskRouter);
+router.use('/projects/:projectId/database', databaseRouter);
 router.use('/projects/:projectId/autopilot', autopilotRouter);
 router.use('/profile', profileRoutes);
 router.use('/settings', settingsRoutes);

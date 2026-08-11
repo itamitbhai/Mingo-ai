@@ -1,31 +1,33 @@
 import { Types } from 'mongoose';
 import {
   AgentGenerationStatus,
-  IFrontendOperation,
+  IApiContract,
+  IDatabaseOperation,
+  IDatabaseSchemaContract,
   IPlanTask,
-  ITaskBoardItem,
   ProjectPlanStatus,
   RecommendedAgent,
   TaskExecutionStatus,
   TaskType,
 } from 'shared';
-import { frontendAgentConfig } from '../../config/frontendAgent.config';
+import { databaseAgentConfig } from '../../config/databaseAgent.config';
 import { AgentGenerationDocument, AgentGenerationModel, TaskExecutionDocument, TaskExecutionModel } from '../../models';
 import { getProjectById } from '../../services/project.service';
 import * as usageService from '../../services/usage.service';
 import { ApiError } from '../../utils/ApiError';
 import { logger } from '../../utils/logger';
 import * as plannerService from '../planner/planner.service';
-import { isBackendTask } from '../backend/backend.service';
-import { isDatabaseTask } from '../database/database.service';
-import { buildFrontendContext } from './frontend.context';
-import { FrontendValidationError, runFrontendAgent } from './frontend.agent';
-import { FrontendOperationOutput } from './frontend.schema';
-import { OnFrontendStage } from './frontend.types';
-import { applyFrontendOperations, previewFrontendOperations } from './frontend.operations';
+import { buildDatabaseContext } from './database.context';
+import { computeSchemaContractWarnings } from './database.planner';
+import { DatabaseValidationError, runDatabaseAgent } from './database.agent';
+import { DatabaseOperationOutput } from './database.schema';
+import { OnDatabaseStage } from './database.types';
+import { applyDatabaseOperations, previewDatabaseOperations } from './database.operations';
 
-export function isFrontendTask(task: IPlanTask): boolean {
-  return task.type === TaskType.FRONTEND || task.recommendedAgent === RecommendedAgent.FRONTEND;
+/** A task belongs to the Database Agent (spec §11) when the Planner typed it as database work or
+ *  explicitly recommended the Database Agent — mirrors `backend.service.ts`'s `isBackendTask`. */
+export function isDatabaseTask(task: IPlanTask): boolean {
+  return task.type === TaskType.DATABASE || task.recommendedAgent === RecommendedAgent.DATABASE;
 }
 
 function owningAgentLabel(task: IPlanTask): string {
@@ -35,7 +37,7 @@ function owningAgentLabel(task: IPlanTask): string {
 }
 
 export function describeOwningAgent(task: IPlanTask): string {
-  return `This task belongs to the ${owningAgentLabel(task)}, not the Frontend Agent.`;
+  return `This task belongs to the ${owningAgentLabel(task)}, not the Database Agent.`;
 }
 
 function findTask(tasks: IPlanTask[], taskId: string): IPlanTask {
@@ -46,7 +48,7 @@ function findTask(tasks: IPlanTask[], taskId: string): IPlanTask {
   return task;
 }
 
-function toStoredOperation(op: FrontendOperationOutput): IFrontendOperation {
+function toStoredOperation(op: DatabaseOperationOutput): IDatabaseOperation {
   const base = { type: op.type, path: op.path, reason: op.reason };
   switch (op.type) {
     case 'create':
@@ -61,17 +63,40 @@ function toStoredOperation(op: FrontendOperationOutput): IFrontendOperation {
   }
 }
 
+/** Gathers the Backend Agent's already-implemented API contracts for this plan (spec §25/§26): the
+ *  latest non-stale (`completed` or `preview_ready`) generation per backend task, deduplicated by
+ *  `METHOD path` across tasks. Best-effort — an empty result just means no Backend Agent generation
+ *  has run yet, which `database.prompts.ts`/`database.planner.ts` both handle gracefully. */
+async function loadBackendApiContracts(plan: Types.ObjectId): Promise<IApiContract[]> {
+  const generations = await AgentGenerationModel.find({
+    plan,
+    agentType: 'backend',
+    status: { $in: [AgentGenerationStatus.COMPLETED, AgentGenerationStatus.PREVIEW_READY] },
+  }).sort({ version: -1 });
+
+  const latestByTask = new Map<string, AgentGenerationDocument>();
+  for (const generation of generations) {
+    if (!latestByTask.has(generation.taskId)) {
+      latestByTask.set(generation.taskId, generation);
+    }
+  }
+
+  const contractsByKey = new Map<string, IApiContract>();
+  for (const generation of latestByTask.values()) {
+    for (const contract of generation.apiContracts ?? []) {
+      contractsByKey.set(`${contract.method.toUpperCase()} ${contract.path}`, contract);
+    }
+  }
+
+  return Array.from(contractsByKey.values());
+}
+
 function isDuplicateKeyError(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000;
 }
 
-/** Atomically claims the task run-lock (spec §29): a `RUNNING` doc means a generation call is
- *  currently in flight for this task, and colliding with the unique `{plan, taskId}` index on
- *  upsert is how a second concurrent attempt is detected and rejected. Released back to a resting
- *  status (`READY` on success, `FAILED` on error) as soon as the AI call finishes — `RUNNING` only
- *  ever spans the duration of a single execute/regenerate call, never the "awaiting review" period
- *  that follows (that's tracked on the `AgentGeneration` itself via `PREVIEW_READY`).
- */
+/** Atomically claims the task run-lock — identical mechanism to `backend.service.ts`'s
+ *  `acquireTaskLock`. */
 async function acquireTaskLock(
   project: Types.ObjectId,
   plan: Types.ObjectId,
@@ -128,12 +153,11 @@ interface RunGenerationParams {
   taskId: string;
   feedback?: string;
   signal: AbortSignal;
-  onStage?: OnFrontendStage;
+  onStage?: OnDatabaseStage;
 }
 
-/** Shared by `executeTask` and `regenerateTask` — the only difference between a first run and a
- *  regeneration is whether `feedback` is present; everything else (auth, plan-approval, task-type
- *  filtering, dependency check, locking, persistence) is identical. */
+/** Shared by `executeTask` and `regenerateTask` — mirrors `backend.service.ts`'s
+ *  `runGenerationForTask`. */
 async function runGenerationForTask({
   owner,
   projectId,
@@ -147,13 +171,13 @@ async function runGenerationForTask({
   const plan = await plannerService.getPlan(owner, projectId, planId);
 
   if (plan.status !== ProjectPlanStatus.APPROVED) {
-    throw ApiError.badRequest(`Cannot run the Frontend Agent on a plan with status "${plan.status}" — approve the plan first.`);
+    throw ApiError.badRequest(`Cannot run the Database Agent on a plan with status "${plan.status}" — approve the plan first.`);
   }
 
   const tasks = (plan.tasks ?? []) as IPlanTask[];
   const task = findTask(tasks, taskId);
 
-  if (!isFrontendTask(task)) {
+  if (!isDatabaseTask(task)) {
     throw ApiError.badRequest(describeOwningAgent(task));
   }
 
@@ -169,20 +193,31 @@ async function runGenerationForTask({
 
   await acquireTaskLock(project._id, plan._id, taskId);
 
-  logger.info('frontend_agent.started', { projectId: project.id, planId: plan.id, taskId });
-  onStage?.({ stage: 'loading_context', label: 'Reading project context…' });
+  logger.info('database_agent.started', { projectId: project.id, planId: plan.id, taskId });
+  onStage?.({ stage: 'loading_context', label: 'Reading database structure…' });
 
   try {
-    const context = await buildFrontendContext(owner, projectId, task, tasks, feedback);
+    onStage?.({ stage: 'reading_backend_contract', label: "Reading the Backend Agent's API contract…" });
+    const backendApiContracts = await loadBackendApiContracts(plan._id);
 
-    onStage?.({ stage: 'reading_files', label: 'Inspecting existing components…' });
+    const context = await buildDatabaseContext(
+      owner,
+      projectId,
+      task,
+      tasks,
+      plan.database ?? null,
+      backendApiContracts,
+      feedback
+    );
 
-    const { output, usage } = await runFrontendAgent({ context, signal, onStage });
+    onStage?.({ stage: 'reading_files', label: 'Inspecting existing models and connection setup…' });
+
+    const { output, usage } = await runDatabaseAgent({ context, signal, onStage });
 
     onStage?.({ stage: 'planning', label: 'Preparing change preview…' });
 
     const operations = output.operations.map(toStoredOperation);
-    const { preview, operationsWithDiff } = await previewFrontendOperations(owner, projectId, operations);
+    const { preview, operationsWithDiff } = await previewDatabaseOperations(owner, projectId, operations);
 
     if (!preview.valid) {
       throw ApiError.badRequest('The generated changes conflict with the current workspace state.', {
@@ -190,16 +225,24 @@ async function runGenerationForTask({
       });
     }
 
+    const contractWarnings = computeSchemaContractWarnings(context.requiredFieldPlan, output.schemaContracts);
+    if (contractWarnings.length > 0) {
+      logger.warn('database_agent.contractWarnings', { projectId: project.id, taskId, contractWarnings });
+    }
+
     const version = await getNextGenerationVersion(plan._id, taskId);
     const generation = await AgentGenerationModel.create({
       project: project._id,
       plan: plan._id,
       taskId,
-      agentType: 'frontend',
+      agentType: 'database',
       version,
       status: AgentGenerationStatus.PREVIEW_READY,
       operations: operationsWithDiff,
       dependencyRequests: output.dependencyRequests,
+      schemaContracts: output.schemaContracts,
+      databaseChanges: output.databaseChanges,
+      contractWarnings,
       notes: output.notes,
       feedback,
     });
@@ -212,34 +255,34 @@ async function runGenerationForTask({
     await usageService.recordUsage({
       userId: owner,
       projectId: project._id,
-      modelName: frontendAgentConfig.MODEL,
-      purpose: 'frontend_agent',
+      modelName: databaseAgentConfig.MODEL,
+      purpose: 'database_agent',
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       totalTokens: usage.totalTokens,
     });
 
-    logger.info('frontend_agent.completed', { projectId: project.id, planId: plan.id, taskId, generationId: generation.id });
+    logger.info('database_agent.completed', { projectId: project.id, planId: plan.id, taskId, generationId: generation.id });
     onStage?.({ stage: 'preview_ready', label: 'Changes ready for review.' });
 
     return generation;
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : 'The Frontend Agent could not generate valid changes.';
+    const message = err instanceof ApiError ? err.message : 'The Database Agent could not generate valid changes.';
     await finishTask(plan._id, taskId, { status: TaskExecutionStatus.FAILED, error: message.slice(0, 500) });
 
-    if (err instanceof FrontendValidationError) {
+    if (err instanceof DatabaseValidationError) {
       await usageService.recordUsage({
         userId: owner,
         projectId: project._id,
-        modelName: frontendAgentConfig.MODEL,
-        purpose: 'frontend_agent',
+        modelName: databaseAgentConfig.MODEL,
+        purpose: 'database_agent',
         inputTokens: err.usage.inputTokens,
         outputTokens: err.usage.outputTokens,
         totalTokens: err.usage.totalTokens,
       });
-      logger.error('frontend_agent.failed', { projectId: project.id, planId: plan.id, taskId, issues: err.issues });
+      logger.error('database_agent.failed', { projectId: project.id, planId: plan.id, taskId, issues: err.issues });
     } else {
-      logger.error('frontend_agent.failed', { projectId: project.id, planId: plan.id, taskId, error: err });
+      logger.error('database_agent.failed', { projectId: project.id, planId: plan.id, taskId, error: err });
     }
 
     throw err;
@@ -252,7 +295,7 @@ export async function executeTask(
   planId: string,
   taskId: string,
   signal: AbortSignal,
-  onStage?: OnFrontendStage
+  onStage?: OnDatabaseStage
 ): Promise<AgentGenerationDocument> {
   return runGenerationForTask({ owner, projectId, planId, taskId, signal, onStage });
 }
@@ -264,7 +307,7 @@ export async function regenerateTask(
   taskId: string,
   feedback: string | undefined,
   signal: AbortSignal,
-  onStage?: OnFrontendStage
+  onStage?: OnDatabaseStage
 ): Promise<AgentGenerationDocument> {
   return runGenerationForTask({ owner, projectId, planId, taskId, feedback, signal, onStage });
 }
@@ -289,11 +332,14 @@ async function getGenerationOrThrow(
 }
 
 /**
- * Applies a previously previewed generation (spec §46/§25/§26): re-validates the stored operations
- * against *current* workspace state (files may have changed since the preview was created), then
- * applies them atomically through `frontend.operations.applyFrontendOperations` — snapshot first,
- * batch apply, restore-on-failure. `AI_AUTO_APPLY` is never consulted here; apply is always an
- * explicit, separate call.
+ * Applies a previously previewed generation — re-validates the stored operations against *current*
+ * workspace state, then applies them atomically through
+ * `database.operations.applyDatabaseOperations`: snapshot first, batch apply, restore-on-failure.
+ * Mirrors `backend.service.ts`'s `applyGeneration`. As with the Backend Agent, the generic
+ * `POST /workspace/ai/apply` route also reaches a Database Agent generation directly through the
+ * Frontend Agent's identically-shaped `applyGeneration` (spec §75) — both call through to the same
+ * Phase 4 primitives, so either path is safe; this one exists so `database.service` is a complete,
+ * self-contained module like `frontend.service`/`backend.service`.
  */
 export async function applyGeneration(owner: Types.ObjectId, projectId: string, generationId: string) {
   const { generation, project } = await getGenerationOrThrow(owner, projectId, generationId);
@@ -303,7 +349,7 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
   }
 
   const operations = generation.operations;
-  const { preview } = await previewFrontendOperations(owner, projectId, operations);
+  const { preview } = await previewDatabaseOperations(owner, projectId, operations);
 
   if (!preview.valid) {
     throw ApiError.badRequest('These changes are no longer valid against the current workspace — try regenerating.', {
@@ -315,7 +361,7 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
   await generation.save();
 
   try {
-    const result = await applyFrontendOperations(owner, projectId, generation.taskId, operations);
+    const result = await applyDatabaseOperations(owner, projectId, generation.taskId, operations);
 
     generation.status = AgentGenerationStatus.COMPLETED;
     await generation.save();
@@ -326,7 +372,7 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
       latestGenerationId: generation._id,
     });
 
-    logger.info('frontend_agent.applied', { projectId: project.id, taskId: generation.taskId, generationId: generation.id });
+    logger.info('database_agent.applied', { projectId: project.id, taskId: generation.taskId, generationId: generation.id });
 
     return result;
   } catch (err) {
@@ -336,7 +382,8 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
   }
 }
 
-/** Rejects a proposed generation — no filesystem writes ever happen here (spec §47). */
+/** Rejects a proposed generation — no filesystem writes ever happen here. Mirrors
+ *  `backend.service.ts`'s `rejectGeneration`. */
 export async function rejectGeneration(owner: Types.ObjectId, projectId: string, generationId: string) {
   const { generation } = await getGenerationOrThrow(owner, projectId, generationId);
 
@@ -349,7 +396,7 @@ export async function rejectGeneration(owner: Types.ObjectId, projectId: string,
 
   await finishTask(generation.plan, generation.taskId, { status: TaskExecutionStatus.CANCELLED });
 
-  logger.info('frontend_agent.rejected', { projectId, taskId: generation.taskId, generationId: generation.id });
+  logger.info('database_agent.rejected', { projectId, taskId: generation.taskId, generationId: generation.id });
 
   return generation;
 }
@@ -366,51 +413,31 @@ export async function getGeneration(owner: Types.ObjectId, projectId: string, ge
   return generation;
 }
 
-/** Merges `plan.tasks` with live `TaskExecution` rows for the task board (spec §54). A task with no
- *  execution record yet is computed as `READY` (dependencies satisfied) or `BLOCKED` (they aren't)
- *  — never persisted speculatively, only ever written once a real run is attempted. */
-export async function listTasksWithStatus(
+/**
+ * Read-only, workspace-derived database schema metadata for a project (spec §76) — never a live
+ * query against a real MongoDB server. Merges every `completed` (applied) Database Agent
+ * generation's `schemaContracts` across the whole project, newest generation wins per model.
+ */
+export async function getProjectDatabaseSchema(
   owner: Types.ObjectId,
-  projectId: string,
-  planId: string
-): Promise<ITaskBoardItem[]> {
-  const plan = await plannerService.getPlan(owner, projectId, planId);
-  const tasks = (plan.tasks ?? []) as IPlanTask[];
+  projectId: string
+): Promise<IDatabaseSchemaContract[]> {
+  const project = await getProjectById(owner, projectId);
 
-  const executions = await TaskExecutionModel.find({ plan: plan._id });
-  const executionByTaskId = new Map(executions.map((execution) => [execution.taskId, execution]));
-  const completedIds = new Set(
-    executions.filter((execution) => execution.status === TaskExecutionStatus.COMPLETED).map((e) => e.taskId)
-  );
+  const generations = await AgentGenerationModel.find({
+    project: project._id,
+    agentType: 'database',
+    status: AgentGenerationStatus.COMPLETED,
+  }).sort({ createdAt: -1 });
 
-  return tasks.map((task) => {
-    const frontend = isFrontendTask(task);
-    const backend = !frontend && isBackendTask(task);
-    const database = !frontend && !backend && isDatabaseTask(task);
-    const owningAgent = frontend || backend || database ? undefined : owningAgentLabel(task);
-
-    const execution = executionByTaskId.get(task.id);
-    if (execution) {
-      return {
-        ...task,
-        executionStatus: execution.status,
-        latestGenerationId: execution.latestGenerationId?.toString(),
-        error: execution.error,
-        isFrontendTask: frontend,
-        isBackendTask: backend,
-        isDatabaseTask: database,
-        owningAgent,
-      };
+  const byModel = new Map<string, IDatabaseSchemaContract>();
+  for (const generation of generations) {
+    for (const schema of (generation.schemaContracts ?? []) as IDatabaseSchemaContract[]) {
+      if (!byModel.has(schema.model)) {
+        byModel.set(schema.model, schema);
+      }
     }
+  }
 
-    const isReady = task.dependencies.every((dependencyId) => completedIds.has(dependencyId));
-    return {
-      ...task,
-      executionStatus: isReady ? TaskExecutionStatus.READY : TaskExecutionStatus.BLOCKED,
-      isFrontendTask: frontend,
-      isBackendTask: backend,
-      isDatabaseTask: database,
-      owningAgent,
-    };
-  });
+  return Array.from(byModel.values());
 }

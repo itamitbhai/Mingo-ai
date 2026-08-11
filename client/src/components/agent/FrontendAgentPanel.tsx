@@ -199,7 +199,7 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
         <p className="text-sm font-medium">No approved plan yet</p>
         <p className="text-xs text-muted-foreground">
-          Approve a plan in the Planner before running the Frontend Agent.
+          Approve a plan in the Planner before running the Frontend, Backend, or Database Agent.
         </p>
       </div>
     );
@@ -208,7 +208,7 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Mingo AI Frontend Agent</h2>
+        <h2 className="text-sm font-semibold">Mingo AI Agents</h2>
         {onClose && (
           <Button variant="ghost" size="sm" onClick={onClose}>
             Close

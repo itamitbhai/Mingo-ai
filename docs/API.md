@@ -201,25 +201,37 @@ never writes files, runs commands, or triggers any other agent.
 or a task's `title`/`description`/`acceptanceCriteria`, addressed by `id` — never a full plan
 replacement. The edited plan is re-validated in full before saving.
 
-## Frontend Agent
+## Frontend Agent, Backend Agent & Database Agent
 
-Turns one **approved**, frontend-typed task from a `ProjectPlan` into a previewed, then
-(only on explicit approval) applied, set of file operations. Same ownership model as everything
-else: every `planId`/`taskId`/`generationId` is scoped to `{project, owner}`.
+Turns one **approved**, frontend-, backend-, or database-typed task from a `ProjectPlan` into a
+previewed, then (only on explicit approval) applied, set of file operations. Same ownership model
+as everything else: every `planId`/`taskId`/`generationId` is scoped to `{project, owner}`.
 
 | Method | Path                                                                        | Body / Query        | Description |
 | ------ | ----------------------------------------------------------------------------- | ---------------------- | ------------- |
 | GET    | `/projects/:projectId/plans/:planId/tasks`                                    | —                       | Task board — plan tasks merged with live execution status |
-| POST   | `/projects/:projectId/plans/:planId/tasks/:taskId/execute`                    | `{}` (SSE)              | Run the Frontend Agent on this task — streams progress, ends with `done`/`error` |
+| POST   | `/projects/:projectId/plans/:planId/tasks/:taskId/execute`                    | `{}` (SSE)              | Run whichever agent owns this task — streams progress, ends with `done`/`error` |
 | POST   | `/projects/:projectId/plans/:planId/tasks/:taskId/regenerate`                 | `{ feedback? }` (SSE)   | Regenerate with optional user feedback — adds a new generation version, never overwrites the previous one |
 | GET    | `/projects/:projectId/plans/:planId/tasks/:taskId/generations`                | —                       | Generation history for this task, newest version first |
 | GET    | `/projects/:projectId/plans/:planId/tasks/:taskId/generations/:generationId`  | —                       | Get one generation |
 | POST   | `/projects/:projectId/workspace/ai/apply`                                     | `{ generationId }`      | Apply a `preview_ready` generation — snapshots the workspace, then applies atomically |
 | POST   | `/projects/:projectId/workspace/ai/reject`                                    | `{ generationId }`      | Reject a `preview_ready` generation — no filesystem writes |
+| GET    | `/projects/:projectId/database/schema`                                        | —                       | Phase 8: merged, already-*applied* database schema metadata for this project — workspace-derived, never a live MongoDB query |
+
+**`execute`/`regenerate` dispatch by task ownership (Phase 7/8).** The route itself doesn't name an
+agent — `task-agent.controller.ts` looks up the task's `type`/`recommendedAgent` and tries the
+Backend Agent, then the Database Agent, then falls back to the Frontend Agent's own check (which
+rejects anything that isn't frontend-typed with a message naming the real owning agent — this is
+also how testing/devops/security tasks get rejected, no extra logic needed for those). Every other
+row in this table was already agent-agnostic in Phase 6 (they operate on
+`AgentGeneration`/workspace state, not on which agent produced it) and needed no change across
+Phase 7 or Phase 8.
 
 **Execution/regeneration is rate-limited** the same way as plan generation
 (`FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS` per `FRONTEND_AGENT_RATE_LIMIT_WINDOW_MS`, default 5 per
-10 minutes). Both `execute` and `regenerate` are SSE, same wire format as the Planner:
+10 minutes) — one shared per-user budget regardless of which agent ends up handling the task,
+so mixing task types can't be used to multiply total codegen throughput. Both `execute` and
+`regenerate` are SSE, same wire format as the Planner:
 
 ```jsonc
 { "type": "stage", "stage": "loading_context", "label": "Reading project context…" }
@@ -231,18 +243,39 @@ else: every `planId`/`taskId`/`generationId` is scoped to `{project, owner}`.
 { "type": "error", "message": "..." }
 ```
 
+The Database Agent additionally emits a `reading_backend_contract` stage before `reading_files`,
+while it gathers the Backend Agent's already-implemented API contracts for the plan.
+
 **Preconditions, checked in order, before any AI call**: the plan must be `status: 'approved'`; the
-task must be frontend-typed (`type === 'frontend'` or `recommendedAgent === 'frontend'` — anything
-else is rejected with `"This task belongs to the <X> Agent, not the Frontend Agent."`); every id in
-`task.dependencies` must have a `completed` `TaskExecution` (otherwise the task is marked `blocked`
-and rejected with `"Waiting for required tasks."`); the task must not already be running (a second
-concurrent `execute`/`regenerate` gets `409 Task already running.`).
+task must belong to the agent handling it (frontend: `type === 'frontend'` or
+`recommendedAgent === 'frontend'`; backend: `type === 'backend'` or `recommendedAgent === 'backend'`;
+database: `type === 'database'` or `recommendedAgent === 'database'` — anything else is rejected
+with `"This task belongs to the <X> Agent, not the <Y> Agent."`); every id in `task.dependencies`
+must have a `completed` `TaskExecution` (otherwise the task is marked `blocked` and rejected with
+`"Waiting for required tasks."`); the task must not already be running (a second concurrent
+`execute`/`regenerate` gets `409 Task already running.`).
 
 **Apply is never automatic.** A generation only reaches `preview_ready` after passing Zod +
 semantic validation (path traversal, `.env`/`.git`/`node_modules`/secrets blocked, size/count
 limits); applying it still requires a separate, explicit `POST /workspace/ai/apply` naming that
 exact `generationId`, which re-validates the operations against the *current* workspace state
-before writing anything.
+before writing anything. The Database Agent never executes a live MongoDB command — "apply" here
+always means "write generated source files to the workspace," never "run against a real database."
+
+**Backend Agent generations (Phase 7) carry two extra fields** on `IAgentGeneration`:
+`apiContracts` (`{ method, path, authentication, request?, response?, errors? }[]`, one entry per
+endpoint the task creates or changes) and `contractWarnings` (`string[]`, populated when a generated
+endpoint isn't in the Planner's approved `ProjectPlan.api` surface — a warning shown in the diff
+review, never a blocking error).
+
+**Database Agent generations (Phase 8) carry two more fields**: `schemaContracts`
+(`{ model, collection, fields, indexes }[]`, one entry per Mongoose model the task creates or
+changes) and `databaseChanges` (`{ type, model, fields?, reason? }[]`, a lighter change-log for the
+preview UI). They also populate `contractWarnings` — reused from Phase 7 — when a generated
+schema is missing a field the Planner's `ProjectPlan.database` or an already-implemented backend
+contract requires. All four (`apiContracts`/`schemaContracts`/`databaseChanges` plus the shared
+`contractWarnings`) are `undefined`/empty on a Frontend Agent generation, and
+`schemaContracts`/`databaseChanges` are `undefined`/empty on a Backend Agent one.
 
 ## Profile
 

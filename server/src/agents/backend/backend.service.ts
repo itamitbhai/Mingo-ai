@@ -1,31 +1,32 @@
 import { Types } from 'mongoose';
 import {
   AgentGenerationStatus,
-  IFrontendOperation,
+  IApiContract,
+  IBackendOperation,
+  IPlanApiEndpoint,
   IPlanTask,
-  ITaskBoardItem,
   ProjectPlanStatus,
   RecommendedAgent,
   TaskExecutionStatus,
   TaskType,
 } from 'shared';
-import { frontendAgentConfig } from '../../config/frontendAgent.config';
+import { backendAgentConfig } from '../../config/backendAgent.config';
 import { AgentGenerationDocument, AgentGenerationModel, TaskExecutionDocument, TaskExecutionModel } from '../../models';
 import { getProjectById } from '../../services/project.service';
 import * as usageService from '../../services/usage.service';
 import { ApiError } from '../../utils/ApiError';
 import { logger } from '../../utils/logger';
 import * as plannerService from '../planner/planner.service';
-import { isBackendTask } from '../backend/backend.service';
-import { isDatabaseTask } from '../database/database.service';
-import { buildFrontendContext } from './frontend.context';
-import { FrontendValidationError, runFrontendAgent } from './frontend.agent';
-import { FrontendOperationOutput } from './frontend.schema';
-import { OnFrontendStage } from './frontend.types';
-import { applyFrontendOperations, previewFrontendOperations } from './frontend.operations';
+import { buildBackendContext } from './backend.context';
+import { BackendValidationError, runBackendAgent } from './backend.agent';
+import { BackendOperationOutput } from './backend.schema';
+import { OnBackendStage } from './backend.types';
+import { applyBackendOperations, previewBackendOperations } from './backend.operations';
 
-export function isFrontendTask(task: IPlanTask): boolean {
-  return task.type === TaskType.FRONTEND || task.recommendedAgent === RecommendedAgent.FRONTEND;
+/** A task belongs to the Backend Agent (spec §39) when the Planner typed it as backend work or
+ *  explicitly recommended the Backend Agent — mirrors `frontend.service.ts`'s `isFrontendTask`. */
+export function isBackendTask(task: IPlanTask): boolean {
+  return task.type === TaskType.BACKEND || task.recommendedAgent === RecommendedAgent.BACKEND;
 }
 
 function owningAgentLabel(task: IPlanTask): string {
@@ -35,7 +36,7 @@ function owningAgentLabel(task: IPlanTask): string {
 }
 
 export function describeOwningAgent(task: IPlanTask): string {
-  return `This task belongs to the ${owningAgentLabel(task)}, not the Frontend Agent.`;
+  return `This task belongs to the ${owningAgentLabel(task)}, not the Backend Agent.`;
 }
 
 function findTask(tasks: IPlanTask[], taskId: string): IPlanTask {
@@ -46,7 +47,7 @@ function findTask(tasks: IPlanTask[], taskId: string): IPlanTask {
   return task;
 }
 
-function toStoredOperation(op: FrontendOperationOutput): IFrontendOperation {
+function toStoredOperation(op: BackendOperationOutput): IBackendOperation {
   const base = { type: op.type, path: op.path, reason: op.reason };
   switch (op.type) {
     case 'create':
@@ -61,17 +62,34 @@ function toStoredOperation(op: FrontendOperationOutput): IFrontendOperation {
   }
 }
 
+/** Flags a generated `apiContracts` entry that doesn't match any endpoint in the Planner's approved
+ *  `ProjectPlan.api` (spec §24/§25/§56) — reported to the user as a warning, never used to reject
+ *  the generation outright, since a plan may legitimately omit low-level implementation detail. */
+function computeContractWarnings(approved: IPlanApiEndpoint[], generated: IApiContract[]): string[] {
+  if (approved.length === 0) return [];
+
+  const approvedKeys = new Set(
+    approved.map((endpoint) => `${endpoint.method.toUpperCase()} ${endpoint.path}`)
+  );
+
+  return generated
+    .filter((contract) => !approvedKeys.has(`${contract.method.toUpperCase()} ${contract.path}`))
+    .map(
+      (contract) =>
+        `API contract conflict: ${contract.method.toUpperCase()} ${contract.path} was generated but is not in the approved plan's API surface.`
+    );
+}
+
 function isDuplicateKeyError(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000;
 }
 
-/** Atomically claims the task run-lock (spec §29): a `RUNNING` doc means a generation call is
- *  currently in flight for this task, and colliding with the unique `{plan, taskId}` index on
- *  upsert is how a second concurrent attempt is detected and rejected. Released back to a resting
- *  status (`READY` on success, `FAILED` on error) as soon as the AI call finishes — `RUNNING` only
- *  ever spans the duration of a single execute/regenerate call, never the "awaiting review" period
- *  that follows (that's tracked on the `AgentGeneration` itself via `PREVIEW_READY`).
- */
+/** Atomically claims the task run-lock — identical mechanism to `frontend.service.ts`'s
+ *  `acquireTaskLock`: a `RUNNING` doc means a generation call is already in flight for this task,
+ *  and colliding with the unique `{plan, taskId}` index on upsert is how a second concurrent
+ *  attempt is detected and rejected. The same `TaskExecutionModel` is shared across agents (keyed
+ *  only by `{plan, taskId}`), so a backend task and a frontend task never contend for each other's
+ *  lock, but two backend attempts on the same task do. */
 async function acquireTaskLock(
   project: Types.ObjectId,
   plan: Types.ObjectId,
@@ -128,12 +146,13 @@ interface RunGenerationParams {
   taskId: string;
   feedback?: string;
   signal: AbortSignal;
-  onStage?: OnFrontendStage;
+  onStage?: OnBackendStage;
 }
 
-/** Shared by `executeTask` and `regenerateTask` — the only difference between a first run and a
- *  regeneration is whether `feedback` is present; everything else (auth, plan-approval, task-type
- *  filtering, dependency check, locking, persistence) is identical. */
+/** Shared by `executeTask` and `regenerateTask` — mirrors `frontend.service.ts`'s
+ *  `runGenerationForTask`: the only difference between a first run and a regeneration is whether
+ *  `feedback` is present; everything else (auth, plan-approval, task-type filtering, dependency
+ *  check, locking, persistence) is identical. */
 async function runGenerationForTask({
   owner,
   projectId,
@@ -147,13 +166,13 @@ async function runGenerationForTask({
   const plan = await plannerService.getPlan(owner, projectId, planId);
 
   if (plan.status !== ProjectPlanStatus.APPROVED) {
-    throw ApiError.badRequest(`Cannot run the Frontend Agent on a plan with status "${plan.status}" — approve the plan first.`);
+    throw ApiError.badRequest(`Cannot run the Backend Agent on a plan with status "${plan.status}" — approve the plan first.`);
   }
 
   const tasks = (plan.tasks ?? []) as IPlanTask[];
   const task = findTask(tasks, taskId);
 
-  if (!isFrontendTask(task)) {
+  if (!isBackendTask(task)) {
     throw ApiError.badRequest(describeOwningAgent(task));
   }
 
@@ -169,20 +188,21 @@ async function runGenerationForTask({
 
   await acquireTaskLock(project._id, plan._id, taskId);
 
-  logger.info('frontend_agent.started', { projectId: project.id, planId: plan.id, taskId });
-  onStage?.({ stage: 'loading_context', label: 'Reading project context…' });
+  logger.info('backend_agent.started', { projectId: project.id, planId: plan.id, taskId });
+  onStage?.({ stage: 'loading_context', label: 'Reading backend structure…' });
 
   try {
-    const context = await buildFrontendContext(owner, projectId, task, tasks, feedback);
+    const apiEndpoints = (plan.api ?? []) as IPlanApiEndpoint[];
+    const context = await buildBackendContext(owner, projectId, task, tasks, apiEndpoints, feedback);
 
-    onStage?.({ stage: 'reading_files', label: 'Inspecting existing components…' });
+    onStage?.({ stage: 'reading_files', label: 'Inspecting existing routes, controllers, and middleware…' });
 
-    const { output, usage } = await runFrontendAgent({ context, signal, onStage });
+    const { output, usage } = await runBackendAgent({ context, signal, onStage });
 
     onStage?.({ stage: 'planning', label: 'Preparing change preview…' });
 
     const operations = output.operations.map(toStoredOperation);
-    const { preview, operationsWithDiff } = await previewFrontendOperations(owner, projectId, operations);
+    const { preview, operationsWithDiff } = await previewBackendOperations(owner, projectId, operations);
 
     if (!preview.valid) {
       throw ApiError.badRequest('The generated changes conflict with the current workspace state.', {
@@ -190,16 +210,23 @@ async function runGenerationForTask({
       });
     }
 
+    const contractWarnings = computeContractWarnings(apiEndpoints, output.apiContracts);
+    if (contractWarnings.length > 0) {
+      logger.warn('backend_agent.contractWarnings', { projectId: project.id, taskId, contractWarnings });
+    }
+
     const version = await getNextGenerationVersion(plan._id, taskId);
     const generation = await AgentGenerationModel.create({
       project: project._id,
       plan: plan._id,
       taskId,
-      agentType: 'frontend',
+      agentType: 'backend',
       version,
       status: AgentGenerationStatus.PREVIEW_READY,
       operations: operationsWithDiff,
       dependencyRequests: output.dependencyRequests,
+      apiContracts: output.apiContracts,
+      contractWarnings,
       notes: output.notes,
       feedback,
     });
@@ -212,34 +239,34 @@ async function runGenerationForTask({
     await usageService.recordUsage({
       userId: owner,
       projectId: project._id,
-      modelName: frontendAgentConfig.MODEL,
-      purpose: 'frontend_agent',
+      modelName: backendAgentConfig.MODEL,
+      purpose: 'backend_agent',
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       totalTokens: usage.totalTokens,
     });
 
-    logger.info('frontend_agent.completed', { projectId: project.id, planId: plan.id, taskId, generationId: generation.id });
+    logger.info('backend_agent.completed', { projectId: project.id, planId: plan.id, taskId, generationId: generation.id });
     onStage?.({ stage: 'preview_ready', label: 'Changes ready for review.' });
 
     return generation;
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : 'The Frontend Agent could not generate valid changes.';
+    const message = err instanceof ApiError ? err.message : 'The Backend Agent could not generate valid changes.';
     await finishTask(plan._id, taskId, { status: TaskExecutionStatus.FAILED, error: message.slice(0, 500) });
 
-    if (err instanceof FrontendValidationError) {
+    if (err instanceof BackendValidationError) {
       await usageService.recordUsage({
         userId: owner,
         projectId: project._id,
-        modelName: frontendAgentConfig.MODEL,
-        purpose: 'frontend_agent',
+        modelName: backendAgentConfig.MODEL,
+        purpose: 'backend_agent',
         inputTokens: err.usage.inputTokens,
         outputTokens: err.usage.outputTokens,
         totalTokens: err.usage.totalTokens,
       });
-      logger.error('frontend_agent.failed', { projectId: project.id, planId: plan.id, taskId, issues: err.issues });
+      logger.error('backend_agent.failed', { projectId: project.id, planId: plan.id, taskId, issues: err.issues });
     } else {
-      logger.error('frontend_agent.failed', { projectId: project.id, planId: plan.id, taskId, error: err });
+      logger.error('backend_agent.failed', { projectId: project.id, planId: plan.id, taskId, error: err });
     }
 
     throw err;
@@ -252,7 +279,7 @@ export async function executeTask(
   planId: string,
   taskId: string,
   signal: AbortSignal,
-  onStage?: OnFrontendStage
+  onStage?: OnBackendStage
 ): Promise<AgentGenerationDocument> {
   return runGenerationForTask({ owner, projectId, planId, taskId, signal, onStage });
 }
@@ -264,7 +291,7 @@ export async function regenerateTask(
   taskId: string,
   feedback: string | undefined,
   signal: AbortSignal,
-  onStage?: OnFrontendStage
+  onStage?: OnBackendStage
 ): Promise<AgentGenerationDocument> {
   return runGenerationForTask({ owner, projectId, planId, taskId, feedback, signal, onStage });
 }
@@ -289,11 +316,14 @@ async function getGenerationOrThrow(
 }
 
 /**
- * Applies a previously previewed generation (spec §46/§25/§26): re-validates the stored operations
- * against *current* workspace state (files may have changed since the preview was created), then
- * applies them atomically through `frontend.operations.applyFrontendOperations` — snapshot first,
- * batch apply, restore-on-failure. `AI_AUTO_APPLY` is never consulted here; apply is always an
- * explicit, separate call.
+ * Applies a previously previewed generation — re-validates the stored operations against *current*
+ * workspace state (files may have changed since the preview was created), then applies them
+ * atomically through `backend.operations.applyBackendOperations`: snapshot first, batch apply,
+ * restore-on-failure. Mirrors `frontend.service.ts`'s `applyGeneration`. In practice, the generic
+ * `POST /workspace/ai/apply` route (spec §73) also reaches a Backend Agent generation directly
+ * through the Frontend Agent's identically-shaped `applyGeneration` — both call through to the same
+ * Phase 4 primitives, so either path is safe; this one exists so `backend.service` is a complete,
+ * self-contained module like `frontend.service`.
  */
 export async function applyGeneration(owner: Types.ObjectId, projectId: string, generationId: string) {
   const { generation, project } = await getGenerationOrThrow(owner, projectId, generationId);
@@ -303,7 +333,7 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
   }
 
   const operations = generation.operations;
-  const { preview } = await previewFrontendOperations(owner, projectId, operations);
+  const { preview } = await previewBackendOperations(owner, projectId, operations);
 
   if (!preview.valid) {
     throw ApiError.badRequest('These changes are no longer valid against the current workspace — try regenerating.', {
@@ -315,7 +345,7 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
   await generation.save();
 
   try {
-    const result = await applyFrontendOperations(owner, projectId, generation.taskId, operations);
+    const result = await applyBackendOperations(owner, projectId, generation.taskId, operations);
 
     generation.status = AgentGenerationStatus.COMPLETED;
     await generation.save();
@@ -326,7 +356,7 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
       latestGenerationId: generation._id,
     });
 
-    logger.info('frontend_agent.applied', { projectId: project.id, taskId: generation.taskId, generationId: generation.id });
+    logger.info('backend_agent.applied', { projectId: project.id, taskId: generation.taskId, generationId: generation.id });
 
     return result;
   } catch (err) {
@@ -336,7 +366,8 @@ export async function applyGeneration(owner: Types.ObjectId, projectId: string, 
   }
 }
 
-/** Rejects a proposed generation — no filesystem writes ever happen here (spec §47). */
+/** Rejects a proposed generation — no filesystem writes ever happen here. Mirrors
+ *  `frontend.service.ts`'s `rejectGeneration`. */
 export async function rejectGeneration(owner: Types.ObjectId, projectId: string, generationId: string) {
   const { generation } = await getGenerationOrThrow(owner, projectId, generationId);
 
@@ -349,7 +380,7 @@ export async function rejectGeneration(owner: Types.ObjectId, projectId: string,
 
   await finishTask(generation.plan, generation.taskId, { status: TaskExecutionStatus.CANCELLED });
 
-  logger.info('frontend_agent.rejected', { projectId, taskId: generation.taskId, generationId: generation.id });
+  logger.info('backend_agent.rejected', { projectId, taskId: generation.taskId, generationId: generation.id });
 
   return generation;
 }
@@ -364,53 +395,4 @@ export async function listGenerations(owner: Types.ObjectId, projectId: string, 
 export async function getGeneration(owner: Types.ObjectId, projectId: string, generationId: string) {
   const { generation } = await getGenerationOrThrow(owner, projectId, generationId);
   return generation;
-}
-
-/** Merges `plan.tasks` with live `TaskExecution` rows for the task board (spec §54). A task with no
- *  execution record yet is computed as `READY` (dependencies satisfied) or `BLOCKED` (they aren't)
- *  — never persisted speculatively, only ever written once a real run is attempted. */
-export async function listTasksWithStatus(
-  owner: Types.ObjectId,
-  projectId: string,
-  planId: string
-): Promise<ITaskBoardItem[]> {
-  const plan = await plannerService.getPlan(owner, projectId, planId);
-  const tasks = (plan.tasks ?? []) as IPlanTask[];
-
-  const executions = await TaskExecutionModel.find({ plan: plan._id });
-  const executionByTaskId = new Map(executions.map((execution) => [execution.taskId, execution]));
-  const completedIds = new Set(
-    executions.filter((execution) => execution.status === TaskExecutionStatus.COMPLETED).map((e) => e.taskId)
-  );
-
-  return tasks.map((task) => {
-    const frontend = isFrontendTask(task);
-    const backend = !frontend && isBackendTask(task);
-    const database = !frontend && !backend && isDatabaseTask(task);
-    const owningAgent = frontend || backend || database ? undefined : owningAgentLabel(task);
-
-    const execution = executionByTaskId.get(task.id);
-    if (execution) {
-      return {
-        ...task,
-        executionStatus: execution.status,
-        latestGenerationId: execution.latestGenerationId?.toString(),
-        error: execution.error,
-        isFrontendTask: frontend,
-        isBackendTask: backend,
-        isDatabaseTask: database,
-        owningAgent,
-      };
-    }
-
-    const isReady = task.dependencies.every((dependencyId) => completedIds.has(dependencyId));
-    return {
-      ...task,
-      executionStatus: isReady ? TaskExecutionStatus.READY : TaskExecutionStatus.BLOCKED,
-      isFrontendTask: frontend,
-      isBackendTask: backend,
-      isDatabaseTask: database,
-      owningAgent,
-    };
-  });
 }

@@ -9,4 +9,6 @@ export * as fileController from './file.controller';
 export * as workspaceController from './workspace.controller';
 export * as planController from './plan.controller';
 export * as frontendAgentController from './frontend-agent.controller';
+export * as taskAgentController from './task-agent.controller';
+export * as databaseAgentController from './database-agent.controller';
 export * as autopilotController from './autopilot.controller';

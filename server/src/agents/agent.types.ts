@@ -31,3 +31,48 @@ export const FRONTEND_AGENT_DEFINITION: AgentDefinition = {
     'frontend_responsive_design',
   ],
 };
+
+/** Phase 7 — the second agent that writes real code. Same stateless-async-function pattern as the
+ *  Planner and Frontend Agents, never a class. */
+export const BACKEND_AGENT_DEFINITION: AgentDefinition = {
+  id: 'backend',
+  name: 'Mingo AI Backend Agent',
+  description:
+    'Consumes approved backend tasks from the Planner Agent and generates/modifies backend project files (routes, controllers, services, middleware) through the Virtual Filesystem.',
+  capabilities: [
+    'backend_server',
+    'backend_routes',
+    'backend_controllers',
+    'backend_services',
+    'backend_middleware',
+    'backend_validation',
+    'backend_authentication',
+    'backend_authorization',
+    'backend_error_handling',
+    'backend_api',
+    'backend_integrations',
+    'backend_configuration',
+    'backend_security',
+  ],
+};
+
+/** Phase 8 — the third agent that writes real code. Same stateless-async-function pattern as every
+ *  other agent, never a class; never connects to or mutates a live MongoDB server. */
+export const DATABASE_AGENT_DEFINITION: AgentDefinition = {
+  id: 'database',
+  name: 'Mingo AI Database Agent',
+  description:
+    'Consumes approved database tasks from the Planner Agent and generates/modifies MongoDB/Mongoose schemas, models, indexes, and seed data through the Virtual Filesystem — never executes against a live database.',
+  capabilities: [
+    'database_schema',
+    'database_models',
+    'database_indexes',
+    'database_relationships',
+    'database_seed_data',
+    'database_validation',
+    'database_repository',
+    'database_configuration',
+    'database_aggregation',
+    'database_security',
+  ],
+};

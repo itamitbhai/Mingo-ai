@@ -23,16 +23,28 @@ interface TaskCardProps {
   onReview: (task: ITaskBoardItem) => void;
 }
 
+/** Phase 8: a task is runnable from this board if the Frontend Agent (Phase 6), the Backend Agent
+ *  (Phase 7), or the Database Agent (Phase 8) owns it — anything else (testing/devops/security)
+ *  still shows as "not available yet". */
+function agentLabelFor(task: ITaskBoardItem): string {
+  if (task.isFrontendTask) return 'Frontend Agent';
+  if (task.isBackendTask) return 'Backend Agent';
+  if (task.isDatabaseTask) return 'Database Agent';
+  return task.owningAgent ?? 'another agent';
+}
+
 export function TaskCard({ task, isBusy, onRun, onReview }: TaskCardProps) {
+  const isExecutable = task.isFrontendTask || task.isBackendTask || task.isDatabaseTask;
+  const agentLabel = agentLabelFor(task);
   const hasPendingReview = Boolean(task.latestGenerationId) && task.executionStatus === TaskExecutionStatus.READY;
   const canRun =
-    task.isFrontendTask &&
+    isExecutable &&
     !isBusy &&
     (task.executionStatus === TaskExecutionStatus.READY || task.executionStatus === TaskExecutionStatus.FAILED) &&
     !hasPendingReview;
 
   return (
-    <Card className={task.isFrontendTask ? 'bg-card/60' : 'bg-card/30 opacity-75'}>
+    <Card className={isExecutable ? 'bg-card/60' : 'bg-card/30 opacity-75'}>
       <CardContent className="flex flex-col gap-2">
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -40,11 +52,9 @@ export function TaskCard({ task, isBusy, onRun, onReview }: TaskCardProps) {
             <span className="text-sm font-semibold">{task.title}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            {!task.isFrontendTask && (
-              <Badge variant="secondary" className="gap-1">
-                <UserCog className="size-3" /> {task.owningAgent}
-              </Badge>
-            )}
+            <Badge variant="secondary" className="gap-1">
+              <UserCog className="size-3" /> {agentLabel}
+            </Badge>
             <Badge variant={STATUS_VARIANT[task.executionStatus]} className="capitalize">
               {task.executionStatus}
             </Badge>
@@ -63,9 +73,9 @@ export function TaskCard({ task, isBusy, onRun, onReview }: TaskCardProps) {
         {task.error && <p className="text-xs text-destructive">{task.error}</p>}
 
         <div className="flex items-center gap-2 pt-1">
-          {!task.isFrontendTask ? (
+          {!isExecutable ? (
             <span className="text-xs text-muted-foreground">
-              Not available yet — {task.owningAgent} isn&apos;t built in this phase.
+              Not available yet — {agentLabel} isn&apos;t built in this phase.
             </span>
           ) : (
             <>

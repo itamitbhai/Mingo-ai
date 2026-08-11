@@ -43,6 +43,14 @@ const envSchema = z.object({
   MAX_TOTAL_OPERATION_SIZE: z.coerce.number().int().positive().default(20 * 1024 * 1024),
   FRONTEND_AGENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
   FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
+
+  // Backend Agent (Phase 7) — reuses every Frontend Agent limit above (MAX_CODEGEN_RETRIES,
+  // MAX_CONTEXT_TOKENS, MAX_FILE_CONTEXT_SIZE, MAX_GENERATION_TOKENS, MAX_FILES_PER_OPERATION,
+  // MAX_TASK_OPERATIONS, MAX_TOTAL_OPERATION_SIZE) — only the model override is agent-specific.
+  BACKEND_AGENT_MODEL: z.string().min(1).optional(),
+
+  // Database Agent (Phase 8) — same reuse pattern as the Backend Agent above.
+  DATABASE_AGENT_MODEL: z.string().min(1).optional(),
 });
 
 function loadEnv() {

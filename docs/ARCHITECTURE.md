@@ -360,6 +360,165 @@ Agent."` — the same message pattern that will apply to future Backend/Database
 'frontend_agent'`) — every attempt, successful or exhausted, records real token counts the same way
 the Planner does.
 
+## Backend Agent (`server/src/agents/backend/`)
+
+The second agent that writes real code (Phase 7) — a file-for-file mirror of
+`agents/frontend/`, not a reimplementation of Phase 4/5/6's primitives:
+
+```
+agents/backend/
+├── backend.types.ts        BackendAgentContext, BackendStage, stage-event types — plus
+│                            apiEndpoints: the Planner's approved ProjectPlan.api, if any
+├── backend.schema.ts        Zod schema for the AI's operations JSON (same discriminated union as
+│                            frontend.schema.ts) plus apiContracts: structured endpoint metadata
+├── backend.security.ts      isForbiddenPath — identical blocklist to frontend.security.ts
+├── backend.prompts.ts       system/user/correction prompt builders — production-quality Express/
+│                            Node rules: thin controllers, business logic in services (only for
+│                            new code — never forces a service layer onto an existing controller-
+│                            only project), correct REST/HTTP semantics, respects the project's
+│                            existing response format and chosen auth technology, never touches
+│                            MongoDB directly, requests packages via dependencyRequests instead of
+│                            editing package.json
+├── backend.validator.ts     JSON parse + Zod validation + the same semantic checks
+│                            frontend.validator.ts runs (duplicate paths, path traversal, forbidden
+│                            files, empty creates, size/count limits)
+├── backend.context.ts       task.affectedFiles + dependency tasks' affected files + backend
+│                            convention samples (package.json, the server entry point, an existing
+│                            error middleware, an existing route file) — real file content, capped
+│                            the same way frontend.context.ts is
+├── backend.agent.ts         runBackendAgent — the identical bounded-retry loop shape as
+│                            runFrontendAgent/runPlannerAgent
+├── backend.operations.ts    bridges validated operations to Phase 4 — same preview.service/
+│                            batch.service/snapshot.service/lock.service path as
+│                            frontend.operations.ts, snapshot-and-restore-on-failure
+└── backend.service.ts       orchestration + persistence: isBackendTask/dependency/plan-approval
+                             checks, the task run-lock, TaskExecution/AgentGeneration persistence,
+                             and computeContractWarnings (below)
+```
+
+**No new models.** `AgentGeneration.agentType` is now `'frontend' | 'backend' | 'database'` (was a
+`'frontend'` literal), and gained Backend/Database-Agent-only fields: `apiContracts` (structured
+method/path/auth/request/response metadata for every endpoint the task creates or changes) and
+`contractWarnings` (see below), plus Phase 8's `schemaContracts`/`databaseChanges` (see the Database
+Agent section below). `TaskExecution` needed no change at all — its run-lock and dependency-graph
+logic were already agent-agnostic, keyed only by `{plan, taskId}`.
+
+**API contract tracking, not enforcement.** The Backend Agent is prompted to implement exactly the
+Planner's approved `ProjectPlan.api` surface, and asked to emit an `apiContracts` entry for every
+endpoint it actually builds. `backend.service.computeContractWarnings` diffs the two
+(`METHOD PATH` string comparison) and stores any generated endpoint that isn't in the approved list
+as a `contractWarnings` entry on the `AgentGeneration` — surfaced to the user in the diff review
+(`ChangePreview.tsx`) rather than silently allowed or used to reject the generation outright. A plan
+with no declared API surface produces no warnings at all, since omitting implementation-level detail
+from a plan is legitimate.
+
+**One dispatcher, no duplicate routes.** `POST .../tasks/:taskId/execute` and `.../regenerate`
+(mounted in `task.routes.ts`) now go through `controllers/task-agent.controller.ts` instead of
+directly to `frontendAgentController` — it resolves the task from the plan, and (as of Phase 8)
+tries `backendAgentService` (`isBackendTask`), then `databaseAgentService` (`isDatabaseTask`), and
+falls back to `frontendAgentService`'s own check (which already rejects anything that isn't a
+frontend task with a message naming the real owning agent — reused as-is for testing/devops/
+security tasks, no new rejection logic needed for those). Every other Frontend Agent route —
+`listTasks`/`listGenerations`/`getGeneration`/`/workspace/ai/apply`/`/workspace/ai/reject` — is left
+mounted exactly as Phase 6 built it: none of those five ever depended on which agent produced the
+generation, they operate on `AgentGeneration`/workspace state generically, so duplicating them per
+agent would just be the same code three times over. `frontend.service.listTasksWithStatus` gained
+one field per new agent (`isBackendTask` in Phase 7, `isDatabaseTask` in Phase 8, alongside the
+existing `isFrontendTask`) so the task board can enable "Run" for any of them — the only change made
+to a Phase 6 file across both Phase 7 and Phase 8.
+
+**Database boundary, deliberately incomplete in Phase 7.** The Backend Agent's prompt explicitly
+forbids writing a real Mongoose schema — a service calls `TodoModel.find(...)` etc. as if the model
+exists, noting the dependency in the generation's `notes` if it doesn't yet. Owning that model
+(schema, indexes, relations, seed data) is Phase 8's Database Agent, described next.
+
+## Database Agent (`server/src/agents/database/`)
+
+The third agent that writes real code (Phase 8) — a file-for-file mirror of `agents/backend/`, plus
+one additional module the spec calls for by name:
+
+```
+agents/database/
+├── database.types.ts        DatabaseAgentContext, DatabaseStage, stage-event types — plus
+│                             planDatabase (the Planner's ProjectPlan.database), backendApiContracts
+│                             (gathered by database.service.ts), and requiredFieldPlan (computed by
+│                             database.planner.ts)
+├── database.schema.ts        Zod schema for the AI's operations JSON (same discriminated union as
+│                             backend.schema.ts) plus schemaContracts (one entry per Mongoose model)
+│                             and databaseChanges (a lighter change-log for the preview UI)
+├── database.security.ts      isForbiddenPath — identical blocklist to backend.security.ts; a
+│                             MongoDB URI embeds credentials directly in the connection string, so
+│                             .env* protection here is exactly as load-bearing as it is for the
+│                             Backend Agent
+├── database.planner.ts       schema-design/contract-planning logic — NOT the Planner Agent
+│                             (agents/planner/), which it only *reads* from. Merges the Planner's
+│                             declared database entities with the Backend Agent's already-
+│                             implemented API contracts into one required-field list per model
+│                             (buildRequiredFieldPlan), and diffs a generation's actual
+│                             schemaContracts against that list (computeSchemaContractWarnings) —
+│                             the same "ground truth vs. generated" shape as
+│                             backend.service.computeContractWarnings, just factored into its own
+│                             module per the Phase 8 spec's file list
+├── database.prompts.ts       system/user/correction prompt builders — production-quality Mongoose
+│                             rules: only the fields the plan/backend contract actually need, index
+│                             only when justified (every index carries a reason), embed vs.
+│                             reference guidance, never a plaintext password, never a sensitive
+│                             field in a model's default JSON, reuse the existing connection module
+│                             rather than duplicating it, never a live/destructive database
+│                             operation
+├── database.validator.ts     JSON parse + Zod validation + the same semantic checks
+│                             backend.validator.ts runs, plus two schema-specific checks: a
+│                             duplicate model name across schemaContracts, and an index with no
+│                             fields
+├── database.context.ts       task.affectedFiles + dependency tasks' affected files + database
+│                             convention samples (package.json, the connection module, an existing
+│                             model file) — real file content, capped the same way
+│                             backend.context.ts is; also calls
+│                             database.planner.buildRequiredFieldPlan to compute requiredFieldPlan
+├── database.agent.ts         runDatabaseAgent — the identical bounded-retry loop shape as
+│                             runBackendAgent/runFrontendAgent/runPlannerAgent
+├── database.operations.ts    bridges validated operations to Phase 4 — same preview.service/
+│                             batch.service/snapshot.service/lock.service path as
+│                             backend.operations.ts, snapshot-and-restore-on-failure
+└── database.service.ts       orchestration + persistence: isDatabaseTask/dependency/plan-approval
+                              checks, the task run-lock, TaskExecution/AgentGeneration persistence,
+                              loadBackendApiContracts (below), and getProjectDatabaseSchema (spec
+                              §76)
+```
+
+**Reading the Backend Agent's contract, best-effort.** Before building context,
+`database.service.loadBackendApiContracts` queries every `completed`/`preview_ready` Backend Agent
+`AgentGeneration` for the same plan, keeps only the latest version per backend task, and merges their
+`apiContracts` by `METHOD path`. An empty result (no Backend Agent generation has run yet) is
+handled gracefully everywhere it's consumed — the Database Agent doesn't require the Backend Agent
+to have run first unless the Planner's own task dependency graph says so.
+
+**`database.planner.ts`'s model-name inference is a heuristic, never a guarantee.** A backend
+contract's path (e.g. `/api/todos/:id`) is associated with a model name (`Todo`) by singularizing
+and capitalizing its last non-`:id` segment (`inferModelNameFromPath`) — this is only used to widen
+the required-field list a generated schema is checked against, and only ever produces a
+`contractWarnings` entry, never a validation failure, precisely because the heuristic can be wrong.
+
+**A real schema preview, not a hardcoded diagram.** `schemaContracts` (model/collection/fields/
+indexes) and `databaseChanges` (a lighter per-change log) are both dynamically generated from the
+AI's own structured output and rendered by the client's `DatabaseSchemaPreview.tsx` — never
+hardcoded. No React Flow graph was added: this project doesn't have that dependency installed, the
+same situation the Planner's own architecture view already handles by rendering a connector-styled
+list instead (see "Planner Agent" above) — the structured `schemaContracts` data is exactly what a
+future graph view would consume unchanged.
+
+**No live database access, anywhere.** `database.operations.ts` only ever calls Phase 4's
+`preview.service`/`batch.service`/`snapshot.service`/`lock.service` against the *workspace* — there
+is no code path in the Database Agent that opens a real `mongoose.connect`, issues a Mongo command,
+or claims a connection succeeded. Seed scripts are generated as plain reviewable files a human runs
+manually, never executed automatically; a requested migration is generated the same way.
+
+**`GET /projects/:projectId/database/schema` (spec §76)** is the one new REST endpoint Phase 8
+adds (`database.routes.ts` → `database-agent.controller.ts` → `database.service.getProjectDatabaseSchema`)
+— it merges every `completed` Database Agent generation's `schemaContracts` for the project, newest
+generation wins per model, and returns that. It is workspace/project metadata, never a live query
+against a real MongoDB server.
+
 ## Client (`client/`)
 
 ```
@@ -496,7 +655,7 @@ feature or task opens a small dialog and calls `PATCH /plans/:planId` with just 
 change. Entry points: a "Plan with Mingo" item in the Workspace IDE's header dropdown, and an "Open
 Planner" button on the project detail page, alongside the existing Workspace/Chat buttons.
 
-### Frontend Agent
+### Frontend Agent, Backend Agent & Database Agent
 
 A `Bot` icon button in the Workspace IDE header (`WorkspaceHeader`) toggles `FrontendAgentPanel` as
 a fourth resizable panel, alongside the file explorer/editor/AI chat — gated by
@@ -511,15 +670,31 @@ existing `planner.service.listPlans`, then renders:
 
 - `TaskList`/`TaskCard` — the task board (spec-style columns: Blocked/Ready/Running/Failed/
   Completed), reading `GET /plans/:planId/tasks` (plan tasks merged live with `TaskExecution` rows).
+  **Phase 8**: `TaskCard` treats a task as runnable when `task.isFrontendTask`, `task.isBackendTask`,
+  or `task.isDatabaseTask` is true (a small `UserCog` badge names which agent will run it); anything
+  else (testing/devops/security) still renders as "not available yet".
 - `AgentProgress` — a stage checklist driven by real `stage` SSE frames only, no fabricated
   progress.
 - `ChangePreview`/`ChangeFileList` — the diff/approval flow. Each operation row's "View Diff" opens
   the **existing** `DiffViewerDialog` from `components/workspace/` (built in Phase 4, previously
   unused anywhere) with `original`/`modified` taken straight from the generation's stored
   `originalContent`/`content` — no extra request needed. Apply/Reject/Regenerate call `POST
-  /workspace/ai/apply`, `POST /workspace/ai/reject`, and the regenerate SSE endpoint respectively.
+  /workspace/ai/apply`, `POST /workspace/ai/reject`, and the regenerate SSE endpoint respectively —
+  unchanged since Phase 6, since applying a batch of file operations never depended on which agent
+  proposed them. **Phase 7**: `ChangePreview` also renders `apiContracts` (the endpoints a Backend
+  Agent generation implements) and any `contractWarnings` (an endpoint/schema field outside the
+  Planner's approved contract) when present. **Phase 8**: `ChangePreview` additionally renders
+  `DatabaseSchemaPreview.tsx` — a real, dynamically-generated model/field/index list built straight
+  from a Database Agent generation's `schemaContracts`/`databaseChanges` (`undefined` for a
+  Frontend/Backend Agent generation).
 - `GenerationHistory` — read-only past attempts for a task; regenerating always adds a new version,
   never overwrites one.
+
+No new panel, store, or service was added for the Backend or Database Agent —
+`streamExecuteTask`/`streamRegenerateTask` already call the task-scoped
+`.../tasks/:taskId/execute`/`regenerate` endpoints without knowing or caring which agent handles
+them server-side (see `task-agent.controller.ts` above), so a backend- or database-typed task runs
+through the exact same client code path as a frontend-typed one.
 
 ## Design system
 

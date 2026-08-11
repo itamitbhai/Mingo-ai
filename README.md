@@ -1,4 +1,4 @@
-# Mingo AI — Phase 6
+# Mingo AI — Phase 8
 
 Mingo AI is an AI-powered software engineering platform. **Phase 1** delivered the production-ready
 SaaS foundation (auth, project CRUD, MongoDB API). **Phase 2** added a per-project AI chat.
@@ -7,11 +7,18 @@ tabs, save/autosave, search, and a command palette. **Phase 4** turned that file
 Workspace Engine — versioning, snapshots/restore, batch operations with preview, move/rename,
 activity history, and a locking foundation. **Phase 5** added the Planner Agent — a natural-language
 request in, a structured/validated `ProjectPlan` (requirements, stack, architecture, tasks) out,
-still no code written. **Phase 6** (this phase) adds the **Frontend Agent**: it takes one approved,
+still no code written. **Phase 6** added the **Frontend Agent**: it takes one approved,
 frontend-typed task from the plan, generates real file operations through the Workspace Engine,
-shows a diff preview, and applies them only after explicit user approval. See
-[What's in Phase 6](#whats-in-phase-6) and
-[What's intentionally not in Phase 6](#whats-intentionally-not-in-phase-6).
+shows a diff preview, and applies them only after explicit user approval. **Phase 7** added the
+**Backend Agent** alongside it: the same task → context → AI → validated operations → diff →
+approval → snapshot → atomic apply pipeline, applied to backend-typed tasks — Express routes,
+controllers, services, middleware, and structured API contract metadata. **Phase 8** (this phase)
+adds the **Database Agent**: the same pipeline again, applied to database-typed tasks — MongoDB/
+Mongoose schemas, models, indexes, relationships, and seed data, cross-checked against both the
+Planner's declared entities and the Backend Agent's already-implemented API contract. It never
+connects to or mutates a live MongoDB server — only ever generates and previews workspace source
+files. See [What's in Phase 8](#whats-in-phase-8) and
+[What's intentionally not in Phase 8](#whats-intentionally-not-in-phase-8).
 
 ## Tech stack
 
@@ -164,3 +171,90 @@ tasks in a plan are explicitly rejected ("This task belongs to the Backend Agent
 Agent.") rather than attempted. `AI_AUTO_APPLY` exists as a documented config flag but nothing in
 this phase consults it — apply is always an explicit, separate user action. Anthropic/Gemini AI
 providers remain structurally supported but unimplemented — only OpenAI works today.
+
+## What's in Phase 7
+
+The **Backend Agent** — the second agent that writes real code, living at
+`server/src/agents/backend/` and mirroring the Frontend Agent's architecture file-for-file
+(`backend.types.ts`, `backend.schema.ts`, `backend.security.ts`, `backend.prompts.ts`,
+`backend.context.ts`, `backend.validator.ts`, `backend.agent.ts`, `backend.operations.ts`,
+`backend.service.ts`). It consumes one **approved**, backend-typed task from a Planner
+`ProjectPlan` — Express routes/controllers/services/middleware/validation/authentication/error
+handling — reads the relevant slice of the existing backend (respecting whatever directory
+structure, language, and layering the project already uses; never migrating frameworks or forcing a
+service layer onto a project that doesn't have one), asks the AI for the same structured
+create/update/delete/rename/move file operations the Frontend Agent uses, plus structured
+**API contract metadata** (method/path/auth/request/response) for every endpoint it creates or
+changes. Contracts that fall outside the Planner's approved API surface are flagged as
+`contractWarnings` on the generation rather than silently allowed or blocked outright. Validation,
+diff preview, snapshot-before-apply, atomic apply, and rollback-on-failure all reuse the exact same
+Phase 4 Virtual Filesystem primitives (`preview.service`/`batch.service`/`snapshot.service`/
+`lock.service`) the Frontend Agent uses — the Backend Agent never touches MongoDB directly, never
+writes a full Mongoose schema (that's Phase 8's Database Agent), never executes a command, and never
+sees or writes a secret/`.env`/`.git`/`node_modules` path. The existing task board, diff viewer, and
+approve/reject/regenerate UI (Phase 6) needed no new components — `POST
+.../tasks/:taskId/execute`/`regenerate` now dispatch to whichever agent actually owns the task
+(`task-agent.controller.ts`), and a task board item now reports both `isFrontendTask` and
+`isBackendTask` so the same "Run" button works for either. Full details in the "Backend Agent"
+sections of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/API.md](docs/API.md).
+
+## What's intentionally not in Phase 7
+
+Still no Database/Testing/DevOps/Security agents, and still no multi-agent orchestrator — a
+database-typed task is rejected the same way a backend-typed task was rejected in Phase 6
+("This task belongs to the Database Agent, not the Backend Agent."). The Backend Agent never writes
+a real Mongoose schema/model (only calls through to one as if it exists, noting the dependency), never
+installs a package (`dependencyRequests` only), never modifies `package.json`'s dependencies
+directly, never runs a command, and never touches Mingo AI's own platform backend
+(`server/src/` itself) — it only ever modifies the user's generated project inside their workspace.
+API contract mismatch detection is a same-generation warning, not a blocking validation or a
+cross-generation reconciliation system. Anthropic/Gemini AI providers remain structurally supported
+but unimplemented — only OpenAI works today.
+
+## What's in Phase 8
+
+The **Database Agent** — the third agent that writes real code, living at
+`server/src/agents/database/` and mirroring the Backend Agent's architecture file-for-file
+(`database.types.ts`, `database.schema.ts`, `database.security.ts`, `database.prompts.ts`,
+`database.context.ts`, `database.validator.ts`, `database.agent.ts`, `database.operations.ts`,
+`database.service.ts`), plus one new module, `database.planner.ts` — schema-design/contract logic
+(not to be confused with `agents/planner/`, the Planner Agent whose output it *reads*). It consumes
+one **approved**, database-typed task from a Planner `ProjectPlan` — MongoDB/Mongoose schemas,
+models, indexes, relationships, seed data, connection configuration — reads the relevant slice of
+the existing database layer (respecting whatever connection module, model directory, and native-
+driver-vs-Mongoose choice the project already uses), and asks the AI for the same structured
+create/update/delete/rename/move file operations every agent uses, plus structured **schema
+metadata** (`schemaContracts`: one entry per Mongoose model, with fields/types/indexes) and a
+lighter **change log** (`databaseChanges`) for the preview UI. `database.planner.ts` merges the
+Planner's declared database entities with every field the Backend Agent's already-implemented API
+contracts require into one required-field list per model, and flags — as a `contractWarnings`
+entry, never a block — any generated schema that doesn't actually support a field the plan or an
+implemented endpoint needs. Validation, diff preview, a real schema preview (model/field/index list,
+generated dynamically from the AI's own output, never hardcoded), snapshot-before-apply, atomic
+apply, and rollback-on-failure all reuse the exact same Phase 4 Virtual Filesystem primitives every
+other agent uses — the Database Agent never connects to, queries, or mutates a live MongoDB server;
+it only ever proposes and previews workspace source files. A new read-only
+`GET /projects/:projectId/database/schema` endpoint (spec §76) returns the project's merged,
+already-*applied* schema metadata — derived entirely from `completed` Database Agent generations,
+never a live database query. The existing task board, diff viewer, and approve/reject/regenerate UI
+need no new components beyond one schema-preview panel — `task-agent.controller.ts`'s dispatcher now
+tries Backend, then Database, then falls back to Frontend, and a task board item now also reports
+`isDatabaseTask`. Full details in the "Database Agent" sections of
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/API.md](docs/API.md).
+
+## What's intentionally not in Phase 8
+
+Still no Testing/DevOps/Security agents, and still no multi-agent orchestrator — a testing-typed
+task is rejected the same way a database-typed task was rejected in Phase 7. The Database Agent
+never executes a live MongoDB command (no `dropDatabase`, `collection.drop`, unscoped
+`deleteMany`/`updateMany`, or even a real `mongoose.connect` — "MongoDB connection successful" is
+never claimed), never installs a package (`dependencyRequests` only), never modifies `package.json`
+directly, and never touches Mingo AI's own platform database — it only ever modifies the user's
+generated project inside their workspace. Contract-mismatch detection is a same-generation,
+best-effort warning (a heuristic path→model inference for backend contracts, not a guarantee), never
+a blocking validation or a cross-generation reconciliation system. There is no visual React Flow
+schema graph — the schema preview is a plain, dynamically-generated model/field/index list, the same
+precedent the Planner's own architecture view already set for a dependency that isn't installed in
+this project; the underlying structured data (`schemaContracts`) is exactly what a future graph view
+would consume unchanged. Anthropic/Gemini AI providers remain structurally supported but
+unimplemented — only OpenAI works today.

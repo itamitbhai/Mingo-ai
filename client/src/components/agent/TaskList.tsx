@@ -16,11 +16,12 @@ interface TaskListProps {
   onReview: (task: ITaskBoardItem) => void;
 }
 
-/** Frontend task board (spec §54) — visibility only, no orchestration. Only frontend-typed tasks
- *  are shown; backend/database/testing/etc. tasks belong to future agents and never appear here. */
+/** Task board (spec §54, Phase 7 §38) — visibility only, no orchestration. Every task from the plan
+ *  is shown; only frontend- and backend-typed tasks are runnable (see `TaskCard`) — database/
+ *  testing/devops/security tasks belong to agents that don't exist yet and show as unavailable. */
 export function TaskList({ tasks, busyTaskId, onRun, onReview }: TaskListProps) {
   if (tasks.length === 0) {
-    return <p className="text-sm text-muted-foreground">No frontend tasks in this plan yet.</p>;
+    return <p className="text-sm text-muted-foreground">No tasks in this plan yet.</p>;
   }
 
   return (

@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Types } from 'mongoose';
 import { AgentGenerationStatus, ProjectPlanStatus, TaskExecutionStatus } from 'shared';
 
-vi.mock('../../config/frontendAgent.config', () => ({
-  frontendAgentConfig: { MODEL: 'gpt-4o-mini' },
+vi.mock('../../config/backendAgent.config', () => ({
+  backendAgentConfig: { MODEL: 'gpt-4o-mini' },
 }));
 
 vi.mock('../../models', () => ({
@@ -30,56 +30,46 @@ vi.mock('../planner/planner.service', () => ({
   getPlan: vi.fn(),
 }));
 
-vi.mock('./frontend.context', () => ({
-  buildFrontendContext: vi.fn().mockResolvedValue({}),
+vi.mock('./backend.context', () => ({
+  buildBackendContext: vi.fn().mockResolvedValue({}),
 }));
 
-// Defined inline so this mock never pulls in the real `frontend.agent.ts` module graph (which
-// imports `config/frontendAgent.config` -> `config/env`), mirroring `planner.service.test.ts`.
-vi.mock('./frontend.agent', () => {
-  class FrontendValidationError extends Error {
+// Defined inline so this mock never pulls in the real `backend.agent.ts` module graph (which
+// imports `config/backendAgent.config` -> `config/env`), mirroring `frontend.service.test.ts`.
+vi.mock('./backend.agent', () => {
+  class BackendValidationError extends Error {
     issues: string[];
     usage: { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null };
 
     constructor(issues: string[], usage: { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null }) {
-      super(`Frontend Agent output failed validation after retries: ${issues.join('; ')}`);
-      this.name = 'FrontendValidationError';
+      super(`Backend Agent output failed validation after retries: ${issues.join('; ')}`);
+      this.name = 'BackendValidationError';
       this.issues = issues;
       this.usage = usage;
     }
   }
 
-  return { runFrontendAgent: vi.fn(), FrontendValidationError };
+  return { runBackendAgent: vi.fn(), BackendValidationError };
 });
 
-vi.mock('./frontend.operations', () => ({
-  previewFrontendOperations: vi.fn(),
-  applyFrontendOperations: vi.fn(),
-}));
-
-// `frontend.service.ts` imports `isBackendTask` (Phase 7) and `isDatabaseTask` (Phase 8) purely to
-// label the task board — mocked here so this test never pulls in the real Backend/Database Agent
-// module graphs (which import `config/backendAgent.config`/`config/databaseAgent.config` ->
-// `config/env`), mirroring why `./frontend.agent` above is mocked.
-vi.mock('../backend/backend.service', () => ({
-  isBackendTask: vi.fn().mockReturnValue(false),
-}));
-vi.mock('../database/database.service', () => ({
-  isDatabaseTask: vi.fn().mockReturnValue(false),
+vi.mock('./backend.operations', () => ({
+  previewBackendOperations: vi.fn(),
+  applyBackendOperations: vi.fn(),
 }));
 
 import { AgentGenerationModel, TaskExecutionModel } from '../../models';
 import * as projectService from '../../services/project.service';
 import * as usageService from '../../services/usage.service';
 import * as plannerService from '../planner/planner.service';
-import { FrontendValidationError, runFrontendAgent } from './frontend.agent';
-import { applyFrontendOperations, previewFrontendOperations } from './frontend.operations';
+import { BackendValidationError, runBackendAgent } from './backend.agent';
+import { applyBackendOperations, previewBackendOperations } from './backend.operations';
 import {
   applyGeneration,
   executeTask,
+  isBackendTask,
   regenerateTask,
   rejectGeneration,
-} from './frontend.service';
+} from './backend.service';
 
 function chainable<T>(resolved: T) {
   return {
@@ -89,31 +79,33 @@ function chainable<T>(resolved: T) {
   };
 }
 
-const FRONTEND_TASK = {
-  id: 'TASK-001',
-  title: 'Create ProductCard',
-  description: 'Build a reusable product card component',
-  type: 'frontend',
+const BACKEND_TASK = {
+  id: 'TASK-011',
+  title: 'Create Todo CRUD API',
+  description: 'Build Express routes/controllers/services for Todo CRUD',
+  type: 'backend',
   priority: 'high',
-  complexity: 'small',
+  complexity: 'medium',
   dependencies: [] as string[],
-  affectedFiles: ['src/components/ProductCard.tsx'],
-  acceptanceCriteria: ['Renders product name and price'],
+  affectedFiles: ['server/routes/todo.routes.js'],
+  acceptanceCriteria: ['POST/GET/PATCH/DELETE /api/todos work'],
 };
 
 const VALID_OUTPUT = {
-  operations: [{ type: 'create', path: 'src/components/ProductCard.tsx', content: 'x', reason: 'r' }],
+  operations: [{ type: 'create', path: 'server/routes/todo.routes.js', content: 'x', reason: 'r' }],
   dependencyRequests: [],
+  apiContracts: [{ method: 'GET', path: '/api/todos', authentication: true }],
 };
 
-describe('frontend.service', () => {
+describe('backend.service', () => {
   const owner = new Types.ObjectId();
   const project = { _id: new Types.ObjectId(), id: 'p1' };
   const plan = {
     _id: new Types.ObjectId(),
     id: 'plan1',
     status: ProjectPlanStatus.APPROVED,
-    tasks: [FRONTEND_TASK],
+    tasks: [BACKEND_TASK],
+    api: [],
   };
 
   beforeEach(() => {
@@ -122,51 +114,65 @@ describe('frontend.service', () => {
     vi.mocked(plannerService.getPlan).mockResolvedValue(plan as never);
   });
 
+  describe('isBackendTask', () => {
+    it('matches on type', () => {
+      expect(isBackendTask({ ...BACKEND_TASK, recommendedAgent: undefined } as never)).toBe(true);
+    });
+
+    it('matches on recommendedAgent even with a different type', () => {
+      expect(isBackendTask({ ...BACKEND_TASK, type: 'integration', recommendedAgent: 'backend' } as never)).toBe(true);
+    });
+
+    it('rejects a frontend task', () => {
+      expect(isBackendTask({ ...BACKEND_TASK, type: 'frontend', recommendedAgent: undefined } as never)).toBe(false);
+    });
+  });
+
   describe('executeTask', () => {
     it('rejects when the plan is not approved', async () => {
       vi.mocked(plannerService.getPlan).mockResolvedValue({ ...plan, status: ProjectPlanStatus.READY } as never);
 
       await expect(
-        executeTask(owner, 'p1', 'plan1', 'TASK-001', new AbortController().signal)
+        executeTask(owner, 'p1', 'plan1', 'TASK-011', new AbortController().signal)
       ).rejects.toMatchObject({ statusCode: 400 });
 
-      expect(runFrontendAgent).not.toHaveBeenCalled();
+      expect(runBackendAgent).not.toHaveBeenCalled();
     });
 
-    it('rejects a task that does not belong to the Frontend Agent', async () => {
+    it('rejects a task that does not belong to the Backend Agent', async () => {
       vi.mocked(plannerService.getPlan).mockResolvedValue({
         ...plan,
-        tasks: [{ ...FRONTEND_TASK, type: 'database', recommendedAgent: 'database' }],
+        tasks: [{ ...BACKEND_TASK, type: 'frontend', recommendedAgent: 'frontend' }],
       } as never);
 
       await expect(
-        executeTask(owner, 'p1', 'plan1', 'TASK-001', new AbortController().signal)
+        executeTask(owner, 'p1', 'plan1', 'TASK-011', new AbortController().signal)
       ).rejects.toMatchObject({
         statusCode: 400,
-        message: expect.stringContaining('Database Agent'),
+        message: expect.stringContaining('Frontend Agent'),
       });
 
-      expect(runFrontendAgent).not.toHaveBeenCalled();
+      expect(runBackendAgent).not.toHaveBeenCalled();
     });
 
     it('blocks a task whose dependencies are not completed', async () => {
       vi.mocked(plannerService.getPlan).mockResolvedValue({
         ...plan,
-        tasks: [{ ...FRONTEND_TASK, dependencies: ['TASK-000'] }],
+        tasks: [{ ...BACKEND_TASK, dependencies: ['TASK-010'] }],
       } as never);
       vi.mocked(TaskExecutionModel.find).mockResolvedValue([] as never);
       vi.mocked(TaskExecutionModel.findOneAndUpdate).mockResolvedValue({} as never);
 
       await expect(
-        executeTask(owner, 'p1', 'plan1', 'TASK-001', new AbortController().signal)
+        executeTask(owner, 'p1', 'plan1', 'TASK-011', new AbortController().signal)
       ).rejects.toMatchObject({ statusCode: 400, message: 'Waiting for required tasks.' });
 
       expect(TaskExecutionModel.findOneAndUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ taskId: 'TASK-001' }),
+        expect.objectContaining({ taskId: 'TASK-011' }),
         expect.objectContaining({ $set: expect.objectContaining({ status: TaskExecutionStatus.BLOCKED }) }),
         expect.objectContaining({ upsert: true })
       );
-      expect(runFrontendAgent).not.toHaveBeenCalled();
+      expect(runBackendAgent).not.toHaveBeenCalled();
     });
 
     it('rejects with a conflict when the task is already running', async () => {
@@ -175,57 +181,90 @@ describe('frontend.service', () => {
       vi.mocked(TaskExecutionModel.findOneAndUpdate).mockRejectedValue(duplicateKeyError);
 
       await expect(
-        executeTask(owner, 'p1', 'plan1', 'TASK-001', new AbortController().signal)
+        executeTask(owner, 'p1', 'plan1', 'TASK-011', new AbortController().signal)
       ).rejects.toMatchObject({ statusCode: 409, message: 'Task already running.' });
 
-      expect(runFrontendAgent).not.toHaveBeenCalled();
+      expect(runBackendAgent).not.toHaveBeenCalled();
     });
 
-    it('creates a preview-ready generation on success and records usage', async () => {
+    it('creates a preview-ready generation on success, records usage, and stores apiContracts', async () => {
       vi.mocked(TaskExecutionModel.find).mockResolvedValue([] as never);
       vi.mocked(TaskExecutionModel.findOneAndUpdate).mockResolvedValue({} as never);
-      vi.mocked(runFrontendAgent).mockResolvedValue({
+      vi.mocked(runBackendAgent).mockResolvedValue({
         output: VALID_OUTPUT as never,
         usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
       });
-      vi.mocked(previewFrontendOperations).mockResolvedValue({
+      vi.mocked(previewBackendOperations).mockResolvedValue({
         preview: { valid: true, operations: [], warnings: [], errors: [], conflicts: [] },
         operationsWithDiff: VALID_OUTPUT.operations as never,
       });
       vi.mocked(AgentGenerationModel.findOne).mockReturnValue(chainable(null) as never);
       vi.mocked(AgentGenerationModel.create).mockResolvedValue({ id: 'gen1', version: 1 } as never);
 
-      const generation = await executeTask(owner, 'p1', 'plan1', 'TASK-001', new AbortController().signal);
+      const generation = await executeTask(owner, 'p1', 'plan1', 'TASK-011', new AbortController().signal);
 
       expect(AgentGenerationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: AgentGenerationStatus.PREVIEW_READY, taskId: 'TASK-001' })
+        expect.objectContaining({
+          status: AgentGenerationStatus.PREVIEW_READY,
+          taskId: 'TASK-011',
+          agentType: 'backend',
+          apiContracts: VALID_OUTPUT.apiContracts,
+          contractWarnings: [],
+        })
       );
       expect(usageService.recordUsage).toHaveBeenCalledWith(
-        expect.objectContaining({ purpose: 'frontend_agent', totalTokens: 30 })
+        expect.objectContaining({ purpose: 'backend_agent', totalTokens: 30 })
       );
       expect(TaskExecutionModel.findOneAndUpdate).toHaveBeenCalledWith(
-        { plan: plan._id, taskId: 'TASK-001' },
+        { plan: plan._id, taskId: 'TASK-011' },
         { $set: expect.objectContaining({ status: TaskExecutionStatus.READY }) }
       );
       expect((generation as { id: string }).id).toBe('gen1');
     });
 
+    it('flags a generated endpoint that is not in the approved plan API surface', async () => {
+      vi.mocked(plannerService.getPlan).mockResolvedValue({
+        ...plan,
+        api: [{ method: 'POST', path: '/api/todos', purpose: 'Create a todo', authRequired: true }],
+      } as never);
+      vi.mocked(TaskExecutionModel.find).mockResolvedValue([] as never);
+      vi.mocked(TaskExecutionModel.findOneAndUpdate).mockResolvedValue({} as never);
+      vi.mocked(runBackendAgent).mockResolvedValue({
+        output: VALID_OUTPUT as never, // GET /api/todos — not in the approved list above
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      });
+      vi.mocked(previewBackendOperations).mockResolvedValue({
+        preview: { valid: true, operations: [], warnings: [], errors: [], conflicts: [] },
+        operationsWithDiff: VALID_OUTPUT.operations as never,
+      });
+      vi.mocked(AgentGenerationModel.findOne).mockReturnValue(chainable(null) as never);
+      vi.mocked(AgentGenerationModel.create).mockResolvedValue({ id: 'gen1', version: 1 } as never);
+
+      await executeTask(owner, 'p1', 'plan1', 'TASK-011', new AbortController().signal);
+
+      expect(AgentGenerationModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contractWarnings: [expect.stringContaining('API contract conflict')],
+        })
+      );
+    });
+
     it('marks the task failed and rethrows on a validation error', async () => {
       vi.mocked(TaskExecutionModel.find).mockResolvedValue([] as never);
       vi.mocked(TaskExecutionModel.findOneAndUpdate).mockResolvedValue({} as never);
-      const validationError = new FrontendValidationError(['bad output'], {
+      const validationError = new BackendValidationError(['bad output'], {
         inputTokens: 5,
         outputTokens: 5,
         totalTokens: 10,
       });
-      vi.mocked(runFrontendAgent).mockRejectedValue(validationError);
+      vi.mocked(runBackendAgent).mockRejectedValue(validationError);
 
       await expect(
-        executeTask(owner, 'p1', 'plan1', 'TASK-001', new AbortController().signal)
+        executeTask(owner, 'p1', 'plan1', 'TASK-011', new AbortController().signal)
       ).rejects.toBe(validationError);
 
       expect(TaskExecutionModel.findOneAndUpdate).toHaveBeenCalledWith(
-        { plan: plan._id, taskId: 'TASK-001' },
+        { plan: plan._id, taskId: 'TASK-011' },
         { $set: expect.objectContaining({ status: TaskExecutionStatus.FAILED }) }
       );
       expect(usageService.recordUsage).toHaveBeenCalledWith(expect.objectContaining({ totalTokens: 10 }));
@@ -236,21 +275,21 @@ describe('frontend.service', () => {
     it('folds feedback into the generation run', async () => {
       vi.mocked(TaskExecutionModel.find).mockResolvedValue([] as never);
       vi.mocked(TaskExecutionModel.findOneAndUpdate).mockResolvedValue({} as never);
-      vi.mocked(runFrontendAgent).mockResolvedValue({
+      vi.mocked(runBackendAgent).mockResolvedValue({
         output: VALID_OUTPUT as never,
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       });
-      vi.mocked(previewFrontendOperations).mockResolvedValue({
+      vi.mocked(previewBackendOperations).mockResolvedValue({
         preview: { valid: true, operations: [], warnings: [], errors: [], conflicts: [] },
         operationsWithDiff: VALID_OUTPUT.operations as never,
       });
       vi.mocked(AgentGenerationModel.findOne).mockReturnValue(chainable({ version: 1 }) as never);
       vi.mocked(AgentGenerationModel.create).mockResolvedValue({ id: 'gen2', version: 2 } as never);
 
-      await regenerateTask(owner, 'p1', 'plan1', 'TASK-001', 'Make it mobile-first', new AbortController().signal);
+      await regenerateTask(owner, 'p1', 'plan1', 'TASK-011', 'Use the existing error middleware', new AbortController().signal);
 
       expect(AgentGenerationModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ feedback: 'Make it mobile-first', version: 2 })
+        expect.objectContaining({ feedback: 'Use the existing error middleware', version: 2 })
       );
     });
   });
@@ -260,7 +299,7 @@ describe('frontend.service', () => {
       const generation = {
         id: 'gen1',
         plan: plan._id,
-        taskId: 'TASK-001',
+        taskId: 'TASK-011',
         status: AgentGenerationStatus.PREVIEW_READY,
         save: vi.fn().mockResolvedValue(undefined),
       };
@@ -271,17 +310,7 @@ describe('frontend.service', () => {
 
       expect(generation.status).toBe(AgentGenerationStatus.CANCELLED);
       expect(generation.save).toHaveBeenCalled();
-      expect(applyFrontendOperations).not.toHaveBeenCalled();
-    });
-
-    it('refuses to reject a generation that is not preview-ready', async () => {
-      const generation = { id: 'gen1', status: AgentGenerationStatus.COMPLETED, save: vi.fn() };
-      vi.mocked(AgentGenerationModel.findOne).mockResolvedValue(generation as never);
-
-      await expect(rejectGeneration(owner, 'p1', new Types.ObjectId().toString())).rejects.toMatchObject({
-        statusCode: 400,
-      });
-      expect(generation.save).not.toHaveBeenCalled();
+      expect(applyBackendOperations).not.toHaveBeenCalled();
     });
   });
 
@@ -290,25 +319,25 @@ describe('frontend.service', () => {
       const generation = {
         id: 'gen1',
         plan: plan._id,
-        taskId: 'TASK-001',
+        taskId: 'TASK-011',
         operations: VALID_OUTPUT.operations,
         status: AgentGenerationStatus.PREVIEW_READY,
         save: vi.fn().mockResolvedValue(undefined),
       };
       vi.mocked(AgentGenerationModel.findOne).mockResolvedValue(generation as never);
-      vi.mocked(previewFrontendOperations).mockResolvedValue({
+      vi.mocked(previewBackendOperations).mockResolvedValue({
         preview: { valid: true, operations: [], warnings: [], errors: [], conflicts: [] },
         operationsWithDiff: VALID_OUTPUT.operations as never,
       });
-      vi.mocked(applyFrontendOperations).mockResolvedValue({ applied: 1, operations: [] } as never);
+      vi.mocked(applyBackendOperations).mockResolvedValue({ applied: 1, operations: [] } as never);
       vi.mocked(TaskExecutionModel.findOneAndUpdate).mockResolvedValue({} as never);
 
       await applyGeneration(owner, 'p1', new Types.ObjectId().toString());
 
-      expect(applyFrontendOperations).toHaveBeenCalledWith(owner, 'p1', 'TASK-001', VALID_OUTPUT.operations);
+      expect(applyBackendOperations).toHaveBeenCalledWith(owner, 'p1', 'TASK-011', VALID_OUTPUT.operations);
       expect(generation.status).toBe(AgentGenerationStatus.COMPLETED);
       expect(TaskExecutionModel.findOneAndUpdate).toHaveBeenCalledWith(
-        { plan: plan._id, taskId: 'TASK-001' },
+        { plan: plan._id, taskId: 'TASK-011' },
         { $set: expect.objectContaining({ status: TaskExecutionStatus.COMPLETED }) }
       );
     });
@@ -317,13 +346,13 @@ describe('frontend.service', () => {
       const generation = {
         id: 'gen1',
         plan: plan._id,
-        taskId: 'TASK-001',
+        taskId: 'TASK-011',
         operations: VALID_OUTPUT.operations,
         status: AgentGenerationStatus.PREVIEW_READY,
         save: vi.fn(),
       };
       vi.mocked(AgentGenerationModel.findOne).mockResolvedValue(generation as never);
-      vi.mocked(previewFrontendOperations).mockResolvedValue({
+      vi.mocked(previewBackendOperations).mockResolvedValue({
         preview: { valid: false, operations: [], warnings: [], errors: ['conflict'], conflicts: [] },
         operationsWithDiff: [],
       });
@@ -331,7 +360,7 @@ describe('frontend.service', () => {
       await expect(applyGeneration(owner, 'p1', new Types.ObjectId().toString())).rejects.toMatchObject({
         statusCode: 400,
       });
-      expect(applyFrontendOperations).not.toHaveBeenCalled();
+      expect(applyBackendOperations).not.toHaveBeenCalled();
     });
   });
 });

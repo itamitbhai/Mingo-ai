@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ChangeFileList } from './ChangeFileList';
+import { DatabaseSchemaPreview } from './DatabaseSchemaPreview';
 
 interface ChangePreviewProps {
   generation: IAgentGeneration;
@@ -47,6 +48,32 @@ export function ChangePreview({ generation, isSubmitting, onApply, onReject, onR
           </ul>
         </div>
       )}
+
+      {generation.contractWarnings && generation.contractWarnings.length > 0 && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs">
+          <p className="mb-1 font-medium text-destructive">Contract warnings:</p>
+          <ul className="flex flex-col gap-0.5">
+            {generation.contractWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {generation.apiContracts && generation.apiContracts.length > 0 && (
+        <div className="rounded-md border border-border/60 bg-card/30 p-2 text-xs">
+          <p className="mb-1 font-medium">API endpoints in this change:</p>
+          <ul className="flex flex-col gap-0.5 font-mono">
+            {generation.apiContracts.map((contract) => (
+              <li key={`${contract.method} ${contract.path}`}>
+                {contract.method} {contract.path} {contract.authentication ? '(auth required)' : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <DatabaseSchemaPreview schemaContracts={generation.schemaContracts} databaseChanges={generation.databaseChanges} />
 
       {generation.notes && <p className="text-xs text-muted-foreground">{generation.notes}</p>}
 

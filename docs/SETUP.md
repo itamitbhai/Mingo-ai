@@ -59,6 +59,12 @@ Fill in:
   `FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS` — all optional, control the Frontend Agent's model,
   retry budget, context/output size limits, and rate limit (see
   `server/src/config/frontendAgent.config.ts`); same `OPENAI_API_KEY` powers code generation
+- `BACKEND_AGENT_MODEL` — optional, overrides `AI_MODEL` for the Backend Agent (Phase 7). It reuses
+  every other limit/rate-limit variable listed above — there is no separate
+  `MAX_TASK_OPERATIONS`/rate-limit pair for the Backend Agent (see
+  `server/src/config/backendAgent.config.ts`)
+- `DATABASE_AGENT_MODEL` — optional, overrides `AI_MODEL` for the Database Agent (Phase 8). Same
+  reuse pattern as `BACKEND_AGENT_MODEL` (see `server/src/config/databaseAgent.config.ts`)
 - `AI_AUTO_APPLY` — must stay `false` (the default); changes always require explicit user approval
   in this phase regardless of this flag
 
