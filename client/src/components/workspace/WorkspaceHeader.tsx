@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import {
+  Bot,
   History,
   ListChecks,
   MessageSquare,
@@ -33,9 +34,11 @@ interface WorkspaceHeaderProps {
   dirtyCount: number;
   isExplorerOpen: boolean;
   isAIChatOpen: boolean;
+  isAgentPanelOpen: boolean;
   isBottomPanelOpen: boolean;
   onToggleExplorer: () => void;
   onToggleAIChat: () => void;
+  onToggleAgentPanel: () => void;
   onToggleBottomPanel: () => void;
   onSave: () => void;
   onOpenSettings: () => void;
@@ -52,9 +55,11 @@ export function WorkspaceHeader({
   dirtyCount,
   isExplorerOpen,
   isAIChatOpen,
+  isAgentPanelOpen,
   isBottomPanelOpen,
   onToggleExplorer,
   onToggleAIChat,
+  onToggleAgentPanel,
   onToggleBottomPanel,
   onSave,
   onOpenSettings,
@@ -138,6 +143,16 @@ export function WorkspaceHeader({
           aria-pressed={isAIChatOpen}
         >
           <MessageSquare className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={onToggleAgentPanel}
+          aria-label="Toggle Frontend Agent"
+          aria-pressed={isAgentPanelOpen}
+        >
+          <Bot className="size-4" />
         </Button>
         <Button variant="outline" size="sm" onClick={onSave}>
           <Save className="size-4" /> Save

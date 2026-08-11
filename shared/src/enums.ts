@@ -262,3 +262,46 @@ export const DatabaseRelationType = {
   MANY_TO_MANY: 'many-to-many',
 } as const;
 export type DatabaseRelationType = (typeof DatabaseRelationType)[keyof typeof DatabaseRelationType];
+
+/** Per-task execution status (Phase 6). Lives outside `ProjectPlan.tasks` — the plan itself is
+ *  immutable/versioned, so a task's run state is tracked separately in `TaskExecution`. */
+export const TaskExecutionStatus = {
+  PENDING: 'pending',
+  READY: 'ready',
+  RUNNING: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+  BLOCKED: 'blocked',
+  SKIPPED: 'skipped',
+} as const;
+export type TaskExecutionStatus = (typeof TaskExecutionStatus)[keyof typeof TaskExecutionStatus];
+
+/** Lifecycle of a single Frontend Agent code-generation attempt (`AgentGeneration`, Phase 6). */
+export const AgentGenerationStatus = {
+  QUEUED: 'queued',
+  ANALYZING: 'analyzing',
+  READING_CONTEXT: 'reading_context',
+  PLANNING: 'planning',
+  GENERATING: 'generating',
+  VALIDATING: 'validating',
+  PREVIEW_READY: 'preview_ready',
+  APPROVED: 'approved',
+  APPLYING: 'applying',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+  BLOCKED: 'blocked',
+} as const;
+export type AgentGenerationStatus = (typeof AgentGenerationStatus)[keyof typeof AgentGenerationStatus];
+
+/** File operation types a Frontend Agent may propose. Same value set as `BatchOperationType` —
+ *  kept as its own name so agent code reads clearly as "AI-proposed operation", not "raw batch op". */
+export const FrontendOperationType = {
+  CREATE: 'create',
+  UPDATE: 'update',
+  DELETE: 'delete',
+  RENAME: 'rename',
+  MOVE: 'move',
+} as const;
+export type FrontendOperationType = (typeof FrontendOperationType)[keyof typeof FrontendOperationType];

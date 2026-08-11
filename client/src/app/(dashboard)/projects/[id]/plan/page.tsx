@@ -55,8 +55,8 @@ export default async function PlannerPage({ params }: PlannerPageProps) {
         </div>
         <p className="text-muted-foreground">
           Turn a natural-language request into a structured plan for &ldquo;{projectName}&rdquo; —
-          requirements, stack, architecture, and a task graph. This does not write code or modify
-          your project.
+          requirements, stack, architecture, and a task graph. Generate a plan to review it first,
+          or use Build It Now to have Mingo AI plan, approve, and build it for you end-to-end.
         </p>
       </div>
 

@@ -16,11 +16,33 @@ const envSchema = z.object({
   AI_PROVIDER: z.enum(['openai']).default('openai'),
   AI_MODEL: z.string().min(1).default('gpt-4o-mini'),
   OPENAI_API_KEY: z.string().optional(),
+  // Optional override for the OpenAI SDK's baseURL — lets any OpenAI-API-compatible provider
+  // (e.g. OpenRouter: https://openrouter.ai/api/v1) be used without touching provider code.
+  // Leave unset to use the real OpenAI API.
+  OPENAI_BASE_URL: z.string().url().optional(),
   AI_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   AI_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
   MAX_PLANNER_RETRIES: z.coerce.number().int().min(0).default(2),
   PLANNER_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
   PLANNER_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
+
+  // Frontend Agent (Phase 6)
+  FRONTEND_AGENT_MODEL: z.string().min(1).optional(),
+  MAX_CODEGEN_RETRIES: z.coerce.number().int().min(0).default(2),
+  MAX_CONTEXT_TOKENS: z.coerce.number().int().positive().default(12000),
+  MAX_FILE_CONTEXT_SIZE: z.coerce.number().int().positive().default(20000),
+  MAX_GENERATION_TOKENS: z.coerce.number().int().positive().default(4000),
+  // z.coerce.boolean() would treat the literal string "false" as truthy — this flag gates
+  // automatic filesystem writes, so it must only be true for the literal string "true".
+  AI_AUTO_APPLY: z
+    .string()
+    .optional()
+    .transform((value) => value === 'true'),
+  MAX_FILES_PER_OPERATION: z.coerce.number().int().positive().default(50),
+  MAX_TASK_OPERATIONS: z.coerce.number().int().positive().default(100),
+  MAX_TOTAL_OPERATION_SIZE: z.coerce.number().int().positive().default(20 * 1024 * 1024),
+  FRONTEND_AGENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
 });
 
 function loadEnv() {

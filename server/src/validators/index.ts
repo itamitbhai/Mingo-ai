@@ -6,3 +6,4 @@ export * from './message.validator';
 export * from './file.validator';
 export * from './workspace.validator';
 export * from './plan.validator';
+export * from './frontendAgent.validator';

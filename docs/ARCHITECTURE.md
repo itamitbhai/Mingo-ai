@@ -274,6 +274,92 @@ schema would just duplicate it.
 `conversation` and a `purpose: 'chat' | 'planner'` field — every planner attempt (successful or
 exhausted) records real token counts from the OpenAI response, tagged `purpose: 'planner'`.
 
+## Frontend Agent (`server/src/agents/frontend/`)
+
+The first agent that actually writes code. It consumes one approved, frontend-typed task from a
+Planner `ProjectPlan`, reads the relevant slice of the existing Workspace Engine, asks the AI for a
+structured set of file operations, validates them hard, and — only after explicit user approval —
+applies them atomically through the same Phase 4 batch/snapshot machinery the Browser IDE's own
+Batch Operations dialog uses. It never runs shell commands, installs packages, or touches
+`ProjectFileModel`/MongoDB directly.
+
+```
+agents/
+├── agent.types.ts                  AgentDefinition — a plain metadata shape (id/name/description/
+│                                    capabilities), not a base class; every agent here is a
+│                                    stateless async function, same pattern as the Planner
+└── frontend/
+    ├── frontend.types.ts           FrontendAgentContext, FrontendStage, stage-event types
+    ├── frontend.schema.ts          Zod schema for the AI's operations JSON (discriminated union:
+    │                               create/update/delete/rename/move)
+    ├── frontend.security.ts        isForbiddenPath — blocks .env*, *.pem, *.key, credentials.*,
+    │                               secrets.*, .git/, node_modules/ from ever reaching the AI or
+    │                               being written
+    ├── frontend.prompts.ts         system/user/correction prompt builders (production-quality
+    │                               React/Next.js/Tailwind rules, no backend logic, no secrets)
+    ├── frontend.validator.ts       JSON parse + Zod validation + semantic checks (duplicate paths,
+    │                               path traversal, forbidden files, empty creates, size/count
+    │                               limits)
+    ├── frontend.context.ts         builds relevant-file context: task.affectedFiles + a couple of
+    │                               convention samples (package.json, one existing component) —
+    │                               actual file *content*, unlike the Planner's metadata-only files
+    ├── frontend.agent.ts           runFrontendAgent — the retry loop (bounded by
+    │                               MAX_CODEGEN_RETRIES), same shape as runPlannerAgent
+    ├── frontend.operations.ts      bridges validated operations to Phase 4: preview via
+    │                               preview.service, apply via batch.service + snapshot.service +
+    │                               lock.service (snapshot-and-restore-on-failure)
+    └── frontend.service.ts         orchestration + persistence: ownership/plan-approval/task-type/
+                                     dependency checks, the task run-lock, TaskExecution/
+                                     AgentGeneration persistence — the only layer that touches those
+                                     models
+```
+
+**Two new models, deliberately separate from `ProjectPlan`.** `TaskExecution` (`{project, plan,
+taskId}` unique) tracks a task's run state (`pending|ready|running|completed|failed|cancelled|
+blocked|skipped`) without ever mutating the immutable, versioned plan document. `AgentGeneration`
+is one code-generation attempt for one task — versioned per `{plan, taskId}` like `ProjectPlan`
+itself, storing the proposed operations (each with both `content` and `originalContent`, so the
+client can open a diff with zero extra requests) plus any `dependencyRequests` and regeneration
+`feedback`. Its `operations` field is `Schema.Types.Mixed` for the same reason `ProjectPlan`'s body
+is — Zod (`frontendOutputSchema`) is the real structural gatekeeper.
+
+**The task run-lock reuses the unique index as a mutex, no new locking primitive.** Starting a run
+does `TaskExecutionModel.findOneAndUpdate({plan, taskId, status: {$ne: 'running'}}, {$set: {status:
+'running', ...}}, {upsert: true})`. A second concurrent attempt finds the existing doc already
+`running` (excluded by the `$ne`), so Mongo tries to *insert* instead — which collides with the
+unique `{plan, taskId}` index and throws a duplicate-key error, mapped to `409 Task already
+running.` `RUNNING` only ever spans one execute/regenerate call; the "awaiting review" period after
+a successful generation is tracked via `AgentGeneration.status: 'preview_ready'`, not by staying
+`RUNNING`.
+
+**File-level locking is the first real caller of Phase 4's `lock.service.ts`** (built during Phase 4
+but never enforced on any write path until now). Before applying a batch, the agent acquires a
+`lockType: 'agent'` lock on every existing target file and releases all of them in a `finally`
+block, on success or failure alike.
+
+**Context is scoped, not whole-project.** `frontend.context.ts` reads actual content only for
+`task.affectedFiles` (filtered through `isForbiddenPath` first) plus a couple of fixed convention
+samples, capped by `MAX_FILE_CONTEXT_SIZE`/`MAX_CONTEXT_TOKENS` (a character-length budget — the
+codebase doesn't use a real tokenizer anywhere else either).
+
+**Apply is snapshot-then-batch, with rollback.** `applyGeneration` re-validates the stored
+operations against the *current* workspace state (files may have changed since the preview was
+created), then `frontend.operations.applyFrontendOperations` creates a workspace snapshot via
+`snapshot.service.createSnapshot`, applies the batch via `batch.service.applyBatch`, and — if the
+apply itself throws partway through — calls `snapshot.service.restoreSnapshot` before rethrowing.
+Nothing is ever applied without an explicit `POST /workspace/ai/apply` call naming a specific
+`generationId`; there is no auto-apply path (`AI_AUTO_APPLY` exists as a documented off switch for
+a future phase, but nothing in this phase consults it).
+
+**Task filtering rejects anything that isn't frontend work**, before any AI call: `isFrontendTask`
+checks `task.type === 'frontend'` or `task.recommendedAgent === 'frontend'`; anything else (e.g. a
+`database`-typed task) is rejected with `"This task belongs to the Database Agent, not the Frontend
+Agent."` — the same message pattern that will apply to future Backend/Database/Testing agents.
+
+**Usage tracking**: `purpose: 'frontend_agent'` extends `UsagePurpose` (`'chat' | 'planner' |
+'frontend_agent'`) — every attempt, successful or exhausted, records real token counts the same way
+the Planner does.
+
 ## Client (`client/`)
 
 ```
@@ -409,6 +495,31 @@ than a React Flow canvas (not installed, and the spec itself treats it as option
 feature or task opens a small dialog and calls `PATCH /plans/:planId` with just that one field
 change. Entry points: a "Plan with Mingo" item in the Workspace IDE's header dropdown, and an "Open
 Planner" button on the project detail page, alongside the existing Workspace/Chat buttons.
+
+### Frontend Agent
+
+A `Bot` icon button in the Workspace IDE header (`WorkspaceHeader`) toggles `FrontendAgentPanel` as
+a fourth resizable panel, alongside the file explorer/editor/AI chat — gated by
+`isAgentPanelOpen`/`toggleAgentPanel` in `use-workspace-ui-store.ts`, the same persisted-UI-prefs
+pattern `isAIChatOpen` already uses. `FrontendAgentPanel` follows `PlannerWorkspace.tsx`'s exact
+structure rather than introducing a new hook: SSE-driven actions live directly in the component,
+state lives in `use-frontend-agent-store.ts` (non-persisted — run status/stage, the task board, the
+generation currently under review, its history), and REST/SSE calls go through
+`services/frontend-agent.service.ts` (same manual `fetch`+`ReadableStream` SSE parsing as
+`chat.service.ts`/`planner.service.ts`). It resolves the project's latest **approved** plan via the
+existing `planner.service.listPlans`, then renders:
+
+- `TaskList`/`TaskCard` — the task board (spec-style columns: Blocked/Ready/Running/Failed/
+  Completed), reading `GET /plans/:planId/tasks` (plan tasks merged live with `TaskExecution` rows).
+- `AgentProgress` — a stage checklist driven by real `stage` SSE frames only, no fabricated
+  progress.
+- `ChangePreview`/`ChangeFileList` — the diff/approval flow. Each operation row's "View Diff" opens
+  the **existing** `DiffViewerDialog` from `components/workspace/` (built in Phase 4, previously
+  unused anywhere) with `original`/`modified` taken straight from the generation's stored
+  `originalContent`/`content` — no extra request needed. Apply/Reject/Regenerate call `POST
+  /workspace/ai/apply`, `POST /workspace/ai/reject`, and the regenerate SSE endpoint respectively.
+- `GenerationHistory` — read-only past attempts for a task; regenerating always adds a new version,
+  never overwrites one.
 
 ## Design system
 

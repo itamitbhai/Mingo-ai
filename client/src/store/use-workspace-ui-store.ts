@@ -18,11 +18,13 @@ interface WorkspaceUIState {
   byProject: Record<string, ProjectWorkspaceUI>;
   isExplorerOpen: boolean;
   isAIChatOpen: boolean;
+  isAgentPanelOpen: boolean;
   isBottomPanelOpen: boolean;
   editorPreferences: EditorPreferences;
 
   toggleExplorer: () => void;
   toggleAIChat: () => void;
+  toggleAgentPanel: () => void;
   toggleBottomPanel: () => void;
   setEditorPreferences: (prefs: Partial<EditorPreferences>) => void;
 
@@ -53,11 +55,13 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>()(
       byProject: {},
       isExplorerOpen: true,
       isAIChatOpen: true,
+      isAgentPanelOpen: false,
       isBottomPanelOpen: false,
       editorPreferences: DEFAULT_EDITOR_PREFERENCES,
 
       toggleExplorer: () => set((state) => ({ isExplorerOpen: !state.isExplorerOpen })),
       toggleAIChat: () => set((state) => ({ isAIChatOpen: !state.isAIChatOpen })),
+      toggleAgentPanel: () => set((state) => ({ isAgentPanelOpen: !state.isAgentPanelOpen })),
       toggleBottomPanel: () => set((state) => ({ isBottomPanelOpen: !state.isBottomPanelOpen })),
       setEditorPreferences: (prefs) =>
         set((state) => ({ editorPreferences: { ...state.editorPreferences, ...prefs } })),
@@ -153,6 +157,7 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>()(
         byProject: state.byProject,
         isExplorerOpen: state.isExplorerOpen,
         isAIChatOpen: state.isAIChatOpen,
+        isAgentPanelOpen: state.isAgentPanelOpen,
         isBottomPanelOpen: state.isBottomPanelOpen,
         editorPreferences: state.editorPreferences,
       }),

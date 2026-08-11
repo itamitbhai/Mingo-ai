@@ -338,3 +338,27 @@ export const plansQuerySchema = z.object({
 });
 
 export type PlansQueryInput = z.infer<typeof plansQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Frontend Agent
+// ---------------------------------------------------------------------------
+
+export const FEEDBACK_MAX_LENGTH = 1000;
+
+export const regenerateTaskSchema = z.object({
+  feedback: z.string().trim().min(1).max(FEEDBACK_MAX_LENGTH).optional(),
+});
+
+export type RegenerateTaskInput = z.infer<typeof regenerateTaskSchema>;
+
+export const applyGenerationSchema = z.object({
+  generationId: z.string().regex(OBJECT_ID_REGEX, 'Invalid generation id'),
+});
+
+export type ApplyGenerationInput = z.infer<typeof applyGenerationSchema>;
+
+export const rejectGenerationSchema = z.object({
+  generationId: z.string().regex(OBJECT_ID_REGEX, 'Invalid generation id'),
+});
+
+export type RejectGenerationInput = z.infer<typeof rejectGenerationSchema>;

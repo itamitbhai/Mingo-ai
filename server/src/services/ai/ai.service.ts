@@ -43,17 +43,22 @@ export interface GenerateStructuredParams {
   systemPrompt: string;
   userPrompt: string;
   signal: AbortSignal;
+  /** Overrides `env.AI_MODEL` — used by the Frontend Agent's `FRONTEND_AGENT_MODEL`. */
+  model?: string;
+  maxOutputTokens?: number;
 }
 
 /**
- * One non-streamed, JSON-mode completion — used by the Planner Agent, which needs a single
- * reliable structured response rather than a token stream. Goes through the same provider
+ * One non-streamed, JSON-mode completion — used by the Planner and Frontend Agents, which need a
+ * single reliable structured response rather than a token stream. Goes through the same provider
  * abstraction as `generateReply`; callers (agents) never talk to a provider or OpenAI directly.
  */
 export async function generateStructuredCompletion({
   systemPrompt,
   userPrompt,
   signal,
+  model,
+  maxOutputTokens,
 }: GenerateStructuredParams): Promise<CompleteResult> {
   const provider = getProvider();
   const messages: ChatMessage[] = [
@@ -61,7 +66,13 @@ export async function generateStructuredCompletion({
     { role: 'user', content: userPrompt },
   ];
 
-  return provider.complete({ messages, model: env.AI_MODEL, signal, responseFormat: 'json_object' });
+  return provider.complete({
+    messages,
+    model: model ?? env.AI_MODEL,
+    signal,
+    responseFormat: 'json_object',
+    maxOutputTokens,
+  });
 }
 
 export function getModelName(): string {

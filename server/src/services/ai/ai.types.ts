@@ -24,8 +24,10 @@ export interface CompleteParams {
   model: string;
   signal: AbortSignal;
   /** 'json_object' asks the provider to guarantee syntactically valid JSON output — used by the
-   *  Planner Agent, which needs one structured response rather than a token stream. */
+   *  Planner and Frontend Agents, which need one structured response rather than a token stream. */
   responseFormat: 'json_object';
+  /** Optional cap on generated output tokens (e.g. the Frontend Agent's MAX_GENERATION_TOKENS). */
+  maxOutputTokens?: number;
 }
 
 export interface CompleteResult {

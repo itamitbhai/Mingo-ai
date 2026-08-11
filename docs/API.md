@@ -201,6 +201,49 @@ never writes files, runs commands, or triggers any other agent.
 or a task's `title`/`description`/`acceptanceCriteria`, addressed by `id` — never a full plan
 replacement. The edited plan is re-validated in full before saving.
 
+## Frontend Agent
+
+Turns one **approved**, frontend-typed task from a `ProjectPlan` into a previewed, then
+(only on explicit approval) applied, set of file operations. Same ownership model as everything
+else: every `planId`/`taskId`/`generationId` is scoped to `{project, owner}`.
+
+| Method | Path                                                                        | Body / Query        | Description |
+| ------ | ----------------------------------------------------------------------------- | ---------------------- | ------------- |
+| GET    | `/projects/:projectId/plans/:planId/tasks`                                    | —                       | Task board — plan tasks merged with live execution status |
+| POST   | `/projects/:projectId/plans/:planId/tasks/:taskId/execute`                    | `{}` (SSE)              | Run the Frontend Agent on this task — streams progress, ends with `done`/`error` |
+| POST   | `/projects/:projectId/plans/:planId/tasks/:taskId/regenerate`                 | `{ feedback? }` (SSE)   | Regenerate with optional user feedback — adds a new generation version, never overwrites the previous one |
+| GET    | `/projects/:projectId/plans/:planId/tasks/:taskId/generations`                | —                       | Generation history for this task, newest version first |
+| GET    | `/projects/:projectId/plans/:planId/tasks/:taskId/generations/:generationId`  | —                       | Get one generation |
+| POST   | `/projects/:projectId/workspace/ai/apply`                                     | `{ generationId }`      | Apply a `preview_ready` generation — snapshots the workspace, then applies atomically |
+| POST   | `/projects/:projectId/workspace/ai/reject`                                    | `{ generationId }`      | Reject a `preview_ready` generation — no filesystem writes |
+
+**Execution/regeneration is rate-limited** the same way as plan generation
+(`FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS` per `FRONTEND_AGENT_RATE_LIMIT_WINDOW_MS`, default 5 per
+10 minutes). Both `execute` and `regenerate` are SSE, same wire format as the Planner:
+
+```jsonc
+{ "type": "stage", "stage": "loading_context", "label": "Reading project context…" }
+{ "type": "stage", "stage": "reading_files", "label": "Inspecting existing components…" }
+{ "type": "stage", "stage": "generating", "label": "Generating code…", "attempt": 1 }
+{ "type": "stage", "stage": "retrying", "label": "Fixing issues (attempt 2 of 3)…", "attempt": 2 }
+{ "type": "stage", "stage": "preview_ready", "label": "Changes ready for review." }
+{ "type": "done", "generation": { /* IAgentGeneration */ } }
+{ "type": "error", "message": "..." }
+```
+
+**Preconditions, checked in order, before any AI call**: the plan must be `status: 'approved'`; the
+task must be frontend-typed (`type === 'frontend'` or `recommendedAgent === 'frontend'` — anything
+else is rejected with `"This task belongs to the <X> Agent, not the Frontend Agent."`); every id in
+`task.dependencies` must have a `completed` `TaskExecution` (otherwise the task is marked `blocked`
+and rejected with `"Waiting for required tasks."`); the task must not already be running (a second
+concurrent `execute`/`regenerate` gets `409 Task already running.`).
+
+**Apply is never automatic.** A generation only reaches `preview_ready` after passing Zod +
+semantic validation (path traversal, `.env`/`.git`/`node_modules`/secrets blocked, size/count
+limits); applying it still requires a separate, explicit `POST /workspace/ai/apply` naming that
+exact `generationId`, which re-validates the operations against the *current* workspace state
+before writing anything.
+
 ## Profile
 
 | Method | Path        | Body                  | Description                                    |

@@ -62,6 +62,46 @@ describe('parsePlannerOutput', () => {
     const result = parsePlannerOutput(JSON.stringify(validOutput()));
     expect(result.success).toBe(true);
   });
+
+  it('drops an unrecognized recommendedAgent instead of failing the whole plan', () => {
+    // The model sometimes copies a task's "type" value (e.g. "authentication") into the sibling
+    // "recommendedAgent" field, which has a narrower set of valid values.
+    const output = validOutput({
+      tasks: [task({ id: 'TASK-001', type: 'authentication', recommendedAgent: 'authentication' as never })],
+    });
+    const result = parsePlannerOutput(JSON.stringify(output));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tasks[0].recommendedAgent).toBeUndefined();
+    }
+  });
+
+  it('still accepts a valid recommendedAgent', () => {
+    const output = validOutput({
+      tasks: [task({ id: 'TASK-001', recommendedAgent: 'backend' })],
+    });
+    const result = parsePlannerOutput(JSON.stringify(output));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tasks[0].recommendedAgent).toBe('backend');
+    }
+  });
+
+  it('falls back to "inferred" for an unrecognized stack entry source instead of failing the plan', () => {
+    // Observed in practice: the model sometimes returns "exists" here, apparently bleeding in from
+    // the unrelated files[].exists field elsewhere in the schema.
+    const output = validOutput({
+      stack: { backend: { name: 'Express', source: 'exists' as never } },
+    });
+    const result = parsePlannerOutput(JSON.stringify(output));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.stack.backend?.source).toBe('inferred');
+    }
+  });
 });
 
 describe('findDuplicateTaskIds', () => {

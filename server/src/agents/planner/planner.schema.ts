@@ -15,9 +15,20 @@ import {
 const enumValues = <T extends Record<string, string>>(e: T) =>
   Object.values(e) as [T[keyof T], ...T[keyof T][]];
 
+const techSourceValues = new Set<string>(enumValues(TechSource));
+
+/** Unlike `recommendedAgent` (optional, so an unrecognized value can just be dropped), `source` is
+ *  required — the model occasionally invents a value here too (e.g. "exists", presumably bleeding
+ *  in from the unrelated `files[].exists` field elsewhere in the schema), so an unrecognized value
+ *  falls back to the most neutral choice, "inferred", instead of failing the whole plan. */
+const stackSourceSchema = z.preprocess(
+  (value) => (typeof value === 'string' && techSourceValues.has(value) ? value : TechSource.INFERRED),
+  z.enum(enumValues(TechSource))
+);
+
 const stackEntrySchema = z.object({
   name: z.string().min(1),
-  source: z.enum(enumValues(TechSource)),
+  source: stackSourceSchema,
   reason: z.string().optional(),
 });
 
@@ -127,6 +138,18 @@ const fileEntrySchema = z.object({
   exists: z.boolean().optional(),
 });
 
+const recommendedAgentValues = new Set<string>(enumValues(RecommendedAgent));
+
+/** `recommendedAgent` is optional and every call site that reads it already falls back to `type`
+ *  when it's absent (see `frontend.service.ts`'s `owningAgentLabel`). The model frequently confuses
+ *  it with the sibling `type` field, which has a wider set of values (e.g. "authentication" is valid
+ *  for `type` but not `recommendedAgent`) — rather than failing the whole plan over one optional,
+ *  already-defaulted field, an unrecognized value is dropped so it falls back to `type` downstream. */
+const recommendedAgentSchema = z.preprocess(
+  (value) => (typeof value === 'string' && recommendedAgentValues.has(value) ? value : undefined),
+  z.enum(enumValues(RecommendedAgent)).optional()
+);
+
 const taskSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -137,7 +160,7 @@ const taskSchema = z.object({
   dependencies: z.array(z.string()).default([]),
   affectedFiles: z.array(z.string()).default([]),
   acceptanceCriteria: z.array(z.string()).default([]),
-  recommendedAgent: z.enum(enumValues(RecommendedAgent)).optional(),
+  recommendedAgent: recommendedAgentSchema,
 });
 
 const riskSchema = z.object({

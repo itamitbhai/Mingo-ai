@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Rocket, Sparkles } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,6 +16,10 @@ interface PlannerPromptFormProps {
   stage: PlannerStage | null;
   stageLabel: string;
   error: string | null;
+  /** When provided, renders a second "Build It Now" action that plans, approves, and builds the
+   *  whole thing end-to-end — omit to keep this form to the manual "Generate Plan" flow only. */
+  onBuildNow?: (prompt: string) => void;
+  isBuilding?: boolean;
 }
 
 /**
@@ -40,14 +44,29 @@ function useGeneratingSubLabel(active: boolean): string | null {
   return active ? GENERATING_SUB_LABELS[index] : null;
 }
 
-export function PlannerPromptForm({ onSubmit, isStreaming, stage, stageLabel, error }: PlannerPromptFormProps) {
+export function PlannerPromptForm({
+  onSubmit,
+  isStreaming,
+  stage,
+  stageLabel,
+  error,
+  onBuildNow,
+  isBuilding = false,
+}: PlannerPromptFormProps) {
   const [prompt, setPrompt] = useState('');
   const subLabel = useGeneratingSubLabel(isStreaming && stage === 'generating');
+  const busy = isStreaming || isBuilding;
 
   function handleSubmit() {
     const trimmed = prompt.trim();
-    if (trimmed.length < 10 || isStreaming) return;
+    if (trimmed.length < 10 || busy) return;
     onSubmit(trimmed);
+  }
+
+  function handleBuildNow() {
+    const trimmed = prompt.trim();
+    if (trimmed.length < 10 || busy || !onBuildNow) return;
+    onBuildNow(trimmed);
   }
 
   return (
@@ -62,7 +81,7 @@ export function PlannerPromptForm({ onSubmit, isStreaming, stage, stageLabel, er
         onChange={(event) => setPrompt(event.target.value)}
         placeholder={EXAMPLE_PROMPT}
         rows={5}
-        disabled={isStreaming}
+        disabled={busy}
         aria-label="Project request"
       />
 
@@ -74,12 +93,20 @@ export function PlannerPromptForm({ onSubmit, isStreaming, stage, stageLabel, er
               {subLabel ?? stageLabel}
             </span>
           )}
-          {!isStreaming && error && <span className="text-destructive">{error}</span>}
+          {!busy && error && <span className="text-destructive">{error}</span>}
         </div>
-        <Button onClick={handleSubmit} disabled={prompt.trim().length < 10 || isStreaming}>
-          {isStreaming ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-          Generate Plan
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleSubmit} disabled={prompt.trim().length < 10 || busy}>
+            {isStreaming ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+            Generate Plan
+          </Button>
+          {onBuildNow && (
+            <Button onClick={handleBuildNow} disabled={prompt.trim().length < 10 || busy}>
+              {isBuilding ? <Loader2 className="size-4 animate-spin" /> : <Rocket className="size-4" />}
+              Build It Now
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

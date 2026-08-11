@@ -83,3 +83,11 @@ export const plannerRateLimiter = createRateLimiter({
   max: env.PLANNER_RATE_LIMIT_MAX_REQUESTS,
   message: 'You are generating plans too quickly. Please wait a few minutes and try again.',
 });
+
+/** Frontend Agent task execution/regeneration is an expensive, multi-attempt AI + code-generation
+ *  call — rate-limited the same way as plan generation (Phase 6 spec §69). */
+export const frontendAgentRateLimiter = createRateLimiter({
+  windowMs: env.FRONTEND_AGENT_RATE_LIMIT_WINDOW_MS,
+  max: env.FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are running the Frontend Agent too quickly. Please wait a few minutes and try again.',
+});

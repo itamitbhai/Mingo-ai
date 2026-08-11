@@ -7,6 +7,9 @@ import { conversationsRouter, projectConversationsRouter } from './conversation.
 import { fileRouter, folderRouter } from './file.routes';
 import { workspaceRouter } from './workspace.routes';
 import { planRouter } from './plan.routes';
+import { taskRouter } from './task.routes';
+import { frontendAgentRouter } from './frontend-agent.routes';
+import { autopilotRouter } from './autopilot.routes';
 
 const router = Router();
 
@@ -18,8 +21,11 @@ router.use('/projects', projectRoutes);
 router.use('/projects/:projectId/conversations', projectConversationsRouter);
 router.use('/projects/:projectId/files', fileRouter);
 router.use('/projects/:projectId/folders', folderRouter);
+router.use('/projects/:projectId/workspace/ai', frontendAgentRouter);
 router.use('/projects/:projectId/workspace', workspaceRouter);
 router.use('/projects/:projectId/plans', planRouter);
+router.use('/projects/:projectId/plans/:planId/tasks', taskRouter);
+router.use('/projects/:projectId/autopilot', autopilotRouter);
 router.use('/profile', profileRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/dashboard', dashboardRoutes);

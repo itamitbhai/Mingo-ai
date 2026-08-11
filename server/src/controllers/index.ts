@@ -8,3 +8,5 @@ export * as messageController from './message.controller';
 export * as fileController from './file.controller';
 export * as workspaceController from './workspace.controller';
 export * as planController from './plan.controller';
+export * as frontendAgentController from './frontend-agent.controller';
+export * as autopilotController from './autopilot.controller';

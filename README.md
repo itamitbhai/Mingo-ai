@@ -1,11 +1,17 @@
-# Mingo AI — Phase 3
+# Mingo AI — Phase 6
 
 Mingo AI is an AI-powered software engineering platform. **Phase 1** delivered the production-ready
 SaaS foundation (auth, project CRUD, MongoDB API). **Phase 2** added a per-project AI chat.
-**Phase 3** (this phase) adds a browser-based IDE — a real file tree persisted in MongoDB, a Monaco
-editor, tabs, save/autosave, search, a command palette, and the Phase 2 AI chat docked alongside the
-editor as a read-only assistant. Actually running, generating, or modifying code via AI is still out
-of scope; see [What's intentionally not in Phase 3](#whats-intentionally-not-in-phase-3).
+**Phase 3** added a browser-based IDE — a real file tree persisted in MongoDB, a Monaco editor,
+tabs, save/autosave, search, and a command palette. **Phase 4** turned that file tree into a full
+Workspace Engine — versioning, snapshots/restore, batch operations with preview, move/rename,
+activity history, and a locking foundation. **Phase 5** added the Planner Agent — a natural-language
+request in, a structured/validated `ProjectPlan` (requirements, stack, architecture, tasks) out,
+still no code written. **Phase 6** (this phase) adds the **Frontend Agent**: it takes one approved,
+frontend-typed task from the plan, generates real file operations through the Workspace Engine,
+shows a diff preview, and applies them only after explicit user approval. See
+[What's in Phase 6](#whats-in-phase-6) and
+[What's intentionally not in Phase 6](#whats-intentionally-not-in-phase-6).
 
 ## Tech stack
 
@@ -116,12 +122,45 @@ explains and suggests; it never edits a file. Every new project gets a small sta
 file tree (see `starter-files.service.ts`). Full details in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/API.md](docs/API.md).
 
-## What's intentionally not in Phase 3
+## What's in Phase 4
 
-The workspace **never touches a real filesystem or executes anything** — `ProjectFile` documents in
-MongoDB are the entire "filesystem." AI chat is still chat-only: no AI file edits, no code
-generation, no agents. Also out of scope: real terminal/shell execution, Docker, a sandbox, live
-app preview, `npm install`/`npm run`, GitHub integration, git, deployment, and real-time
-collaboration (the `Deployment` model/`/deployments` page remain placeholders). Monaco loads from a
-CDN by default (no self-hosted worker bundling yet). Anthropic/Gemini AI providers are structurally
-supported (swap `AI_PROVIDER`) but not implemented — only OpenAI works today.
+The Workspace Engine: per-file version history, whole-workspace snapshots with restore
+(auto-backing-up current state first), atomic-in-spirit batch operations (create/update/delete/
+rename/move) with a dry-run preview endpoint, move/rename with descendant path cascades, a
+workspace activity log, and a TTL-based file-locking foundation (`lock.service.ts`) — built but not
+enforced on any write path until Phase 6's Frontend Agent became its first real caller. Still MongoDB
+only, still no real filesystem or command execution.
+
+## What's in Phase 5
+
+The Planner Agent: a natural-language request becomes a structured, Zod-validated, versioned
+`ProjectPlan` — requirements, tech stack, architecture, features, database schema, API surface,
+frontend structure, a dependency-ordered task graph, risks, and assumptions. Streamed progress over
+SSE, bounded correction-prompt retries on invalid output, plan approve/reject, scoped field edits,
+and a structural diff on regeneration. Planning only — no code is written and no other agent runs.
+
+## What's in Phase 6
+
+The Frontend Agent — the first agent that writes real code. It consumes one **approved**,
+frontend-typed task from a Planner `ProjectPlan`, reads the relevant slice of the existing
+workspace (actual file content, not just metadata), asks the AI for a structured set of file
+operations, validates them hard (path traversal, secrets/`.git`/`node_modules` blocked, size/count
+limits, bounded correction-prompt retries), and shows a diff preview (reusing Phase 4's
+previously-unused `DiffViewerDialog`). Nothing is written to the workspace until the user clicks
+**Apply Changes** — which snapshots the workspace first and applies the batch atomically through
+Phase 4's existing `batch.service`/`preview.service`, rolling back via the snapshot if the apply
+itself fails partway through. A task board shows live status per task
+(ready/running/blocked/completed/failed), and every generation attempt is versioned — regenerating
+with feedback never overwrites a previous proposal. A new "Bot" button in the Workspace IDE header
+opens the panel. Full details in the "Frontend Agent" sections of
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/API.md](docs/API.md).
+
+## What's intentionally not in Phase 6
+
+Only the **Frontend Agent** exists — no Backend/Database/Testing/DevOps agents, and no multi-agent
+orchestrator. The agent never runs shell commands, installs packages, executes code, uses a
+terminal/Docker/sandbox, provides a live app preview, or touches Git/GitHub/deployment. Backend
+tasks in a plan are explicitly rejected ("This task belongs to the Backend Agent, not the Frontend
+Agent.") rather than attempted. `AI_AUTO_APPLY` exists as a documented config flag but nothing in
+this phase consults it — apply is always an explicit, separate user action. Anthropic/Gemini AI
+providers remain structurally supported but unimplemented — only OpenAI works today.

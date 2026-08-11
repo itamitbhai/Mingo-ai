@@ -18,6 +18,7 @@ import { fileCacheKey, useFileCacheStore } from '@/store/use-file-cache-store';
 import { useWorkspaceStore, type WorkspaceUiStatus } from '@/store/use-workspace-store';
 import { useWorkspaceUIStore } from '@/store/use-workspace-ui-store';
 import type { AIContextAttachment, EditorProblem } from '@/types/workspace';
+import { FrontendAgentPanel } from '@/components/agent/FrontendAgentPanel';
 import { BatchOperationsDialog } from './BatchOperationsDialog';
 import { BottomPanel } from './BottomPanel';
 import { CommandPalette } from './CommandPalette';
@@ -70,9 +71,11 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
 
   const isExplorerOpen = useWorkspaceUIStore((state) => state.isExplorerOpen);
   const isAIChatOpen = useWorkspaceUIStore((state) => state.isAIChatOpen);
+  const isAgentPanelOpen = useWorkspaceUIStore((state) => state.isAgentPanelOpen);
   const isBottomPanelOpen = useWorkspaceUIStore((state) => state.isBottomPanelOpen);
   const toggleExplorer = useWorkspaceUIStore((state) => state.toggleExplorer);
   const toggleAIChat = useWorkspaceUIStore((state) => state.toggleAIChat);
+  const toggleAgentPanel = useWorkspaceUIStore((state) => state.toggleAgentPanel);
   const toggleBottomPanel = useWorkspaceUIStore((state) => state.toggleBottomPanel);
   const openTabPaths = useWorkspaceUIStore((state) => state.getProjectUI(projectId).openTabPaths);
   const activeTabPath = useWorkspaceUIStore((state) => state.getProjectUI(projectId).activeTabPath);
@@ -231,9 +234,11 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
         dirtyCount={dirtyPaths.size}
         isExplorerOpen={isExplorerOpen}
         isAIChatOpen={isAIChatOpen}
+        isAgentPanelOpen={isAgentPanelOpen}
         isBottomPanelOpen={isBottomPanelOpen}
         onToggleExplorer={toggleExplorer}
         onToggleAIChat={toggleAIChat}
+        onToggleAgentPanel={toggleAgentPanel}
         onToggleBottomPanel={toggleBottomPanel}
         onSave={() => void save()}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -269,7 +274,10 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
               </>
             )}
 
-            <ResizablePanel defaultSize={isAIChatOpen ? 55 : 82} minSize={30}>
+            <ResizablePanel
+              defaultSize={isAIChatOpen || isAgentPanelOpen ? 55 : 82}
+              minSize={30}
+            >
               <div className="flex h-full flex-col">
                 <EditorTabs
                   tabs={tabs}
@@ -303,6 +311,15 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
                     onClearAttachment={() => setPendingAttachment(null)}
                     onClose={toggleAIChat}
                   />
+                </ResizablePanel>
+              </>
+            )}
+
+            {isAgentPanelOpen && (
+              <>
+                <ResizableHandle />
+                <ResizablePanel defaultSize={27} minSize={20} maxSize={45}>
+                  <FrontendAgentPanel projectId={projectId} onClose={toggleAgentPanel} />
                 </ResizablePanel>
               </>
             )}

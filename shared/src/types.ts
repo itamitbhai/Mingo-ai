@@ -1,5 +1,6 @@
 import {
   ActivityType,
+  AgentGenerationStatus,
   ArchitectureNodeType,
   AuthOption,
   BackendStack,
@@ -10,6 +11,7 @@ import {
   DeploymentStatus,
   FileChangeType,
   FileEntryType,
+  FrontendOperationType,
   FrontendStack,
   LockType,
   MessageRole,
@@ -22,6 +24,7 @@ import {
   RiskSeverity,
   StylingOption,
   TaskComplexity,
+  TaskExecutionStatus,
   TaskPriority,
   TaskType,
   TechSource,
@@ -504,6 +507,83 @@ export interface IPlanDiff {
   tasksRemoved: IPlanTask[];
   tasksChanged: IPlanDiffChange<IPlanTask>[];
   stackChanged: Array<{ key: string; before?: IPlanStackEntry; after?: IPlanStackEntry }>;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Frontend Agent (TaskExecution / AgentGeneration)
+// ---------------------------------------------------------------------------
+
+export interface ITaskExecution {
+  id: string;
+  project: string;
+  plan: string;
+  taskId: string;
+  status: TaskExecutionStatus;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  latestGenerationId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A task from `IProjectPlan.tasks` merged with its live `ITaskExecution` status — what the
+ *  Frontend Agent task board (spec §54) renders. */
+export interface ITaskBoardItem extends IPlanTask {
+  executionStatus: TaskExecutionStatus;
+  latestGenerationId?: string;
+  error?: string;
+  /** Whether the Frontend Agent can actually run this task — `false` for backend/database/testing/
+   *  etc. tasks, which belong to future agents and will always be rejected if run. */
+  isFrontendTask: boolean;
+  /** Human-readable owner when `isFrontendTask` is false, e.g. "Backend Agent". */
+  owningAgent?: string;
+}
+
+export interface IFrontendOperation {
+  type: FrontendOperationType;
+  path: string;
+  reason: string;
+  content?: string;
+  originalContent?: string;
+  newName?: string;
+  destinationPath?: string;
+}
+
+export interface IDependencyRequest {
+  name: string;
+  version?: string;
+  reason: string;
+}
+
+export interface IAgentGeneration {
+  id: string;
+  project: string;
+  plan: string;
+  taskId: string;
+  agentType: 'frontend';
+  version: number;
+  status: AgentGenerationStatus;
+  operations: IFrontendOperation[];
+  dependencyRequests: IDependencyRequest[];
+  notes?: string;
+  feedback?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AutopilotTaskOutcome = 'completed' | 'skipped' | 'failed' | 'not_attempted';
+
+/** One task's result from an end-to-end Autopilot run — a one-shot run outcome, distinct from
+ *  `ITaskBoardItem` (live/persisted task-board state). */
+export interface IAutopilotTaskResult {
+  taskId: string;
+  title: string;
+  outcome: AutopilotTaskOutcome;
+  generationId?: string;
+  reason?: string;
+  error?: string;
 }
 
 export interface ApiSuccess<T> {

@@ -53,6 +53,14 @@ Fill in:
 - `MAX_PLANNER_RETRIES`, `PLANNER_RATE_LIMIT_WINDOW_MS`, `PLANNER_RATE_LIMIT_MAX_REQUESTS` — all
   optional, control the Planner Agent's correction-prompt retry budget and its (separate, stricter)
   rate limit; same `OPENAI_API_KEY` from step 3 powers plan generation
+- `FRONTEND_AGENT_MODEL`, `MAX_CODEGEN_RETRIES`, `MAX_CONTEXT_TOKENS`, `MAX_FILE_CONTEXT_SIZE`,
+  `MAX_GENERATION_TOKENS`, `MAX_FILES_PER_OPERATION`, `MAX_TASK_OPERATIONS`,
+  `MAX_TOTAL_OPERATION_SIZE`, `FRONTEND_AGENT_RATE_LIMIT_WINDOW_MS`,
+  `FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS` — all optional, control the Frontend Agent's model,
+  retry budget, context/output size limits, and rate limit (see
+  `server/src/config/frontendAgent.config.ts`); same `OPENAI_API_KEY` powers code generation
+- `AI_AUTO_APPLY` — must stay `false` (the default); changes always require explicit user approval
+  in this phase regardless of this flag
 
 **`client/.env.local`**
 

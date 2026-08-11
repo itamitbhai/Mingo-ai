@@ -19,7 +19,9 @@ function getClient(): OpenAI {
   }
 
   if (!cachedClient) {
-    cachedClient = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    // env.OPENAI_BASE_URL lets this same client talk to any OpenAI-API-compatible provider
+    // (e.g. OpenRouter) — undefined here means the SDK falls back to the real OpenAI API.
+    cachedClient = new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: env.OPENAI_BASE_URL });
   }
 
   return cachedClient;
@@ -89,7 +91,13 @@ async function* streamChat({ messages, model, signal }: StreamChatParams): Async
   }
 }
 
-async function complete({ messages, model, signal, responseFormat }: CompleteParams): Promise<CompleteResult> {
+async function complete({
+  messages,
+  model,
+  signal,
+  responseFormat,
+  maxOutputTokens,
+}: CompleteParams): Promise<CompleteResult> {
   const client = getClient();
 
   try {
@@ -99,6 +107,7 @@ async function complete({ messages, model, signal, responseFormat }: CompletePar
         messages: toOpenAIMessages(messages),
         stream: false,
         response_format: responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
+        max_tokens: maxOutputTokens,
       },
       { signal }
     );

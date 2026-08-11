@@ -14,3 +14,5 @@ export * from './workspaceSnapshot.model';
 export * from './workspaceActivity.model';
 export * from './workspaceLock.model';
 export * from './projectPlan.model';
+export * from './taskExecution.model';
+export * from './agentGeneration.model';
