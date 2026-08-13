@@ -51,6 +51,17 @@ const envSchema = z.object({
 
   // Database Agent (Phase 8) — same reuse pattern as the Backend Agent above.
   DATABASE_AGENT_MODEL: z.string().min(1).optional(),
+
+  // Testing Agent (Phase 9) — same model-override reuse pattern, plus sandbox execution limits for
+  // the ephemeral temp-dir + child_process test runner (no equivalent exists in any earlier phase).
+  TESTING_AGENT_MODEL: z.string().min(1).optional(),
+  TEST_RUN_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  TEST_INSTALL_TIMEOUT_MS: z.coerce.number().int().positive().default(180000),
+  TEST_RUN_MAX_OUTPUT_CHARS: z.coerce.number().int().positive().default(20000),
+  TESTING_AGENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  TESTING_AGENT_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
+  TEST_RUN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  TEST_RUN_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
 });
 
 function loadEnv() {

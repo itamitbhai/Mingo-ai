@@ -16,3 +16,4 @@ export * from './workspaceLock.model';
 export * from './projectPlan.model';
 export * from './taskExecution.model';
 export * from './agentGeneration.model';
+export * from './testRun.model';

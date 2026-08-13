@@ -357,6 +357,27 @@ export const applyGenerationSchema = z.object({
 
 export type ApplyGenerationInput = z.infer<typeof applyGenerationSchema>;
 
+// ---------------------------------------------------------------------------
+// Phase 9 — Testing Agent
+// ---------------------------------------------------------------------------
+
+/** What subset of tests to run (spec §62): every test, only the previously-failed ones, one
+ *  `TestType` category, or a single test file (e.g. re-running just the file a fix targeted). */
+export const testRunScopeSchema = z.union([
+  z.literal('all'),
+  z.literal('failed'),
+  z.enum(['unit', 'api', 'integration', 'component', 'security']),
+  z.object({ file: relativePathSchema }),
+]);
+
+export const createTestRunSchema = z.object({
+  planId: z.string().regex(OBJECT_ID_REGEX, 'Invalid plan id'),
+  taskId: z.string().min(1),
+  scope: testRunScopeSchema.default('all'),
+});
+
+export type CreateTestRunInput = z.infer<typeof createTestRunSchema>;
+
 export const rejectGenerationSchema = z.object({
   generationId: z.string().regex(OBJECT_ID_REGEX, 'Invalid generation id'),
 });

@@ -305,3 +305,39 @@ export const FrontendOperationType = {
   MOVE: 'move',
 } as const;
 export type FrontendOperationType = (typeof FrontendOperationType)[keyof typeof FrontendOperationType];
+
+/** A generated test suite's category (Phase 9 spec §3/§24) — E2E is intentionally omitted for now;
+ *  Playwright generation/execution is a deferred fast-follow, not part of this pass. */
+export const TestType = {
+  UNIT: 'unit',
+  API: 'api',
+  INTEGRATION: 'integration',
+  COMPONENT: 'component',
+  SECURITY: 'security',
+} as const;
+export type TestType = (typeof TestType)[keyof typeof TestType];
+
+/** One executed test's real outcome (Phase 9 spec §34) — never written unless a test runner actually
+ *  produced it (a parsed reporter file or, at minimum, the process's own exit code). */
+export const TestResultStatus = {
+  PASSED: 'passed',
+  FAILED: 'failed',
+  SKIPPED: 'skipped',
+} as const;
+export type TestResultStatus = (typeof TestResultStatus)[keyof typeof TestResultStatus];
+
+/** Lifecycle of a single `TestRun` (Phase 9 spec §35) — trimmed to states the sandbox execution
+ *  engine can honestly produce; `blocked` isn't here because a blocked run is rejected before a
+ *  `TestRun` document is ever created. */
+export const TestRunStatus = {
+  QUEUED: 'queued',
+  PREPARING: 'preparing',
+  INSTALLING: 'installing',
+  RUNNING: 'running',
+  PASSED: 'passed',
+  FAILED: 'failed',
+  ERROR: 'error',
+  CANCELLED: 'cancelled',
+  TIMEOUT: 'timeout',
+} as const;
+export type TestRunStatus = (typeof TestRunStatus)[keyof typeof TestRunStatus];

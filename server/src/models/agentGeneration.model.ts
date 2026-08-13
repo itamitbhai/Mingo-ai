@@ -7,6 +7,7 @@ import {
   IDatabaseSchemaContract,
   IDependencyRequest,
   IFrontendOperation,
+  ITestSuitePlan,
 } from 'shared';
 import { applyToJSON } from '../utils/applyToJSON';
 
@@ -15,8 +16,9 @@ import { applyToJSON } from '../utils/applyToJSON';
  * Agent (Phase 7), or the Database Agent (Phase 8). `operations`/`dependencyRequests`/
  * `apiContracts`/`schemaContracts`/`databaseChanges` are stored as `Mixed` — same rationale as
  * `ProjectPlan`'s body fields (projectPlan.model.ts): the real structural gatekeeper is the Zod
- * schema in `agents/frontend/frontend.schema.ts`, `agents/backend/backend.schema.ts`, or
- * `agents/database/database.schema.ts`, validated before every save.
+ * schema in `agents/frontend/frontend.schema.ts`, `agents/backend/backend.schema.ts`,
+ * `agents/database/database.schema.ts`, or `agents/testing/testing.schema.ts`, validated before
+ * every save.
  */
 export interface AgentGenerationDocument extends Document {
   _id: Types.ObjectId;
@@ -34,6 +36,9 @@ export interface AgentGenerationDocument extends Document {
   schemaContracts?: IDatabaseSchemaContract[];
   /** Database Agent only (Phase 8 spec §32/§56) — the lighter change-log for the preview UI. */
   databaseChanges?: IDatabaseChange[];
+  /** Testing Agent only (Phase 9 spec §24/§64) — the structured test plan behind this generation's
+   *  proposed test files. */
+  testPlan?: ITestSuitePlan[];
   /** Populated by the Backend Agent (Phase 7 spec §24/§56) or the Database Agent (Phase 8 spec
    *  §26/§51) — an endpoint or schema field outside the approved plan/contract, surfaced to the
    *  user rather than silently blocked. */
@@ -63,7 +68,7 @@ const agentGenerationSchema = new Schema<AgentGenerationDocument>(
     },
     agentType: {
       type: String,
-      enum: ['frontend', 'backend', 'database'],
+      enum: ['frontend', 'backend', 'database', 'testing'],
       default: 'frontend',
     },
     version: {
@@ -80,6 +85,7 @@ const agentGenerationSchema = new Schema<AgentGenerationDocument>(
     apiContracts: { type: Schema.Types.Mixed, default: [] },
     schemaContracts: { type: Schema.Types.Mixed, default: [] },
     databaseChanges: { type: Schema.Types.Mixed, default: [] },
+    testPlan: { type: Schema.Types.Mixed, default: [] },
     contractWarnings: { type: [String], default: [] },
     notes: { type: String, maxlength: 2000 },
     feedback: { type: String, maxlength: 1000 },

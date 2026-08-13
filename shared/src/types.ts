@@ -28,6 +28,9 @@ import {
   TaskPriority,
   TaskType,
   TechSource,
+  TestResultStatus,
+  TestRunStatus,
+  TestType,
   Theme,
   WorkspaceActivityAction,
   WorkspaceStatus,
@@ -542,8 +545,11 @@ export interface ITaskBoardItem extends IPlanTask {
   /** Whether the Database Agent can actually run this task (Phase 8) — `false` for frontend/
    *  backend/testing/etc. tasks. */
   isDatabaseTask: boolean;
-  /** Human-readable owner when none of `isFrontendTask`/`isBackendTask`/`isDatabaseTask` is true,
-   *  e.g. "Testing Agent". */
+  /** Whether the Testing Agent can actually run this task (Phase 9) — `false` for frontend/
+   *  backend/database/etc. tasks. */
+  isTestingTask: boolean;
+  /** Human-readable owner when none of `isFrontendTask`/`isBackendTask`/`isDatabaseTask`/
+   *  `isTestingTask` is true, e.g. "Deployment Agent". */
   owningAgent?: string;
 }
 
@@ -625,7 +631,16 @@ export interface IDatabaseChange {
   reason?: string;
 }
 
-export type AgentType = 'frontend' | 'backend' | 'database';
+export type AgentType = 'frontend' | 'backend' | 'database' | 'testing';
+
+/** One test suite the Testing Agent plans to generate (Phase 9 spec §24/§64) — shown in the UI
+ *  before generation, then stored on the resulting `IAgentGeneration.testPlan` for the record. */
+export interface ITestSuitePlan {
+  name: string;
+  type: TestType;
+  priority: TaskPriority;
+  tests: string[];
+}
 
 export interface IAgentGeneration {
   id: string;
@@ -643,6 +658,9 @@ export interface IAgentGeneration {
   /** Database Agent only (Phase 8 spec §32/§56) — the lighter change-log shown in the preview
    *  alongside the file diff. */
   databaseChanges?: IDatabaseChange[];
+  /** Testing Agent only (Phase 9 spec §24/§64) — the structured test plan behind this generation's
+   *  proposed test files. */
+  testPlan?: ITestSuitePlan[];
   /** Populated by the Backend Agent (an endpoint outside the Planner's approved API surface) or the
    *  Database Agent (a schema missing a field the plan or an implemented backend contract
    *  requires) — never a blocking error, always shown to the user in the diff review. */
@@ -652,6 +670,77 @@ export interface IAgentGeneration {
   error?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 — Testing Agent (TestRun)
+// ---------------------------------------------------------------------------
+
+/** One executed test's real outcome (Phase 9 spec §34) — every field here traces back to either a
+ *  parsed test-runner reporter file or, for `error`/`stack`, the runner's own captured output. Never
+ *  fabricated when a run can't be parsed in detail (see `ITestRun.resultsTruncated`/status instead). */
+export interface ITestResult {
+  suite: string;
+  test: string;
+  status: TestResultStatus;
+  duration?: number;
+  error?: string;
+  stack?: string;
+  file?: string;
+  line?: number;
+  expected?: string;
+  actual?: string;
+}
+
+export interface ITestRunSummary {
+  passed: number;
+  failed: number;
+  skipped: number;
+  total: number;
+  durationMs: number;
+}
+
+/** Only ever present when a coverage reporter actually produced `coverage-summary.json` — never
+ *  displayed or estimated otherwise (spec §26/§36). */
+export interface ICoverageSummary {
+  statements: number;
+  branches: number;
+  functions: number;
+  lines: number;
+}
+
+export type ITestRunScope = 'all' | 'failed' | TestType | { file: string };
+
+export interface ITestRun {
+  id: string;
+  project: string;
+  plan: string;
+  taskId: string;
+  generationId?: string;
+  status: TestRunStatus;
+  scope: ITestRunScope;
+  command?: string;
+  summary?: ITestRunSummary;
+  results: ITestResult[];
+  coverage?: ICoverageSummary;
+  logs: { stdout: string; stderr: string; truncated: boolean };
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** AI failure analysis for one failing `ITestResult` (Phase 9 spec §38/§39) — `confidence` is the
+ *  concrete mechanism for "do not claim certainty if evidence is insufficient": the UI must render it,
+ *  not hide it. */
+export interface ITestFailureAnalysis {
+  summary: string;
+  rootCause: string;
+  affectedFile?: string;
+  why: string;
+  recommendedFix: string;
+  confidence: 'low' | 'medium' | 'high';
 }
 
 export type AutopilotTaskOutcome = 'completed' | 'skipped' | 'failed' | 'not_attempted';
