@@ -1,4 +1,4 @@
-import { Loader2, Play, RotateCcw, UserCog } from 'lucide-react';
+import { Loader2, Play, RotateCcw, TestTube2, UserCog } from 'lucide-react';
 import { TaskExecutionStatus, type ITaskBoardItem } from 'shared';
 
 import { Badge } from '@/components/ui/badge';
@@ -21,20 +21,22 @@ interface TaskCardProps {
   isBusy: boolean;
   onRun: (taskId: string) => void;
   onReview: (task: ITaskBoardItem) => void;
+  onRunTests?: (task: ITaskBoardItem) => void;
 }
 
-/** Phase 8: a task is runnable from this board if the Frontend Agent (Phase 6), the Backend Agent
- *  (Phase 7), or the Database Agent (Phase 8) owns it — anything else (testing/devops/security)
- *  still shows as "not available yet". */
+/** Phase 9: a task is runnable from this board if the Frontend Agent (Phase 6), the Backend Agent
+ *  (Phase 7), the Database Agent (Phase 8), or the Testing Agent (Phase 9) owns it — anything else
+ *  (devops/security/deployment) still shows as "not available yet". */
 function agentLabelFor(task: ITaskBoardItem): string {
   if (task.isFrontendTask) return 'Frontend Agent';
   if (task.isBackendTask) return 'Backend Agent';
   if (task.isDatabaseTask) return 'Database Agent';
+  if (task.isTestingTask) return 'Testing Agent';
   return task.owningAgent ?? 'another agent';
 }
 
-export function TaskCard({ task, isBusy, onRun, onReview }: TaskCardProps) {
-  const isExecutable = task.isFrontendTask || task.isBackendTask || task.isDatabaseTask;
+export function TaskCard({ task, isBusy, onRun, onReview, onRunTests }: TaskCardProps) {
+  const isExecutable = task.isFrontendTask || task.isBackendTask || task.isDatabaseTask || task.isTestingTask;
   const agentLabel = agentLabelFor(task);
   const hasPendingReview = Boolean(task.latestGenerationId) && task.executionStatus === TaskExecutionStatus.READY;
   const canRun =
@@ -87,6 +89,11 @@ export function TaskCard({ task, isBusy, onRun, onReview }: TaskCardProps) {
               {task.executionStatus === TaskExecutionStatus.COMPLETED && task.latestGenerationId && (
                 <Button size="sm" variant="outline" onClick={() => onReview(task)}>
                   View Changes
+                </Button>
+              )}
+              {task.isTestingTask && task.executionStatus === TaskExecutionStatus.COMPLETED && onRunTests && (
+                <Button size="sm" variant="outline" onClick={() => onRunTests(task)}>
+                  <TestTube2 className="size-4" /> Run Tests
                 </Button>
               )}
               {canRun && (

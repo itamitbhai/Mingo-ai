@@ -91,3 +91,21 @@ export const frontendAgentRateLimiter = createRateLimiter({
   max: env.FRONTEND_AGENT_RATE_LIMIT_MAX_REQUESTS,
   message: 'You are running the Frontend Agent too quickly. Please wait a few minutes and try again.',
 });
+
+/** AI failure-analysis and fix-generation calls (Phase 9 §66/§68) — same cost profile as any other
+ *  agent codegen call, its own budget so heavy test-debugging sessions don't starve other agents'
+ *  shared `frontendAgentRateLimiter` budget. */
+export const testingAgentRateLimiter = createRateLimiter({
+  windowMs: env.TESTING_AGENT_RATE_LIMIT_WINDOW_MS,
+  max: env.TESTING_AGENT_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are running the Testing Agent too quickly. Please wait a few minutes and try again.',
+});
+
+/** Actually running tests spawns real processes (`npm install` + a test command) inside the sandbox
+ *  execution engine (Phase 9 §2) — meaningfully more expensive/abusable than a codegen call, so it
+ *  gets its own, stricter budget rather than sharing `frontendAgentRateLimiter`. */
+export const testRunExecutionRateLimiter = createRateLimiter({
+  windowMs: env.TEST_RUN_RATE_LIMIT_WINDOW_MS,
+  max: env.TEST_RUN_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are running tests too quickly. Please wait a few minutes and try again.',
+});

@@ -57,15 +57,19 @@ vi.mock('./frontend.operations', () => ({
   applyFrontendOperations: vi.fn(),
 }));
 
-// `frontend.service.ts` imports `isBackendTask` (Phase 7) and `isDatabaseTask` (Phase 8) purely to
-// label the task board — mocked here so this test never pulls in the real Backend/Database Agent
-// module graphs (which import `config/backendAgent.config`/`config/databaseAgent.config` ->
+// `frontend.service.ts` imports `isBackendTask` (Phase 7), `isDatabaseTask` (Phase 8), and
+// `isTestingTask` (Phase 9) purely to label the task board — mocked here so this test never pulls in
+// the real Backend/Database/Testing Agent module graphs (which import
+// `config/backendAgent.config`/`config/databaseAgent.config`/`config/testingAgent.config` ->
 // `config/env`), mirroring why `./frontend.agent` above is mocked.
 vi.mock('../backend/backend.service', () => ({
   isBackendTask: vi.fn().mockReturnValue(false),
 }));
 vi.mock('../database/database.service', () => ({
   isDatabaseTask: vi.fn().mockReturnValue(false),
+}));
+vi.mock('../testing/testing.service', () => ({
+  isTestingTask: vi.fn().mockReturnValue(false),
 }));
 
 import { AgentGenerationModel, TaskExecutionModel } from '../../models';

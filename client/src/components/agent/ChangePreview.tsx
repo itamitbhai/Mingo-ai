@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ChangeFileList } from './ChangeFileList';
 import { DatabaseSchemaPreview } from './DatabaseSchemaPreview';
+import { TestPlanSummary } from './TestPlanSummary';
 
 interface ChangePreviewProps {
   generation: IAgentGeneration;
@@ -74,6 +75,8 @@ export function ChangePreview({ generation, isSubmitting, onApply, onReject, onR
       )}
 
       <DatabaseSchemaPreview schemaContracts={generation.schemaContracts} databaseChanges={generation.databaseChanges} />
+
+      <TestPlanSummary testPlan={generation.testPlan} />
 
       {generation.notes && <p className="text-xs text-muted-foreground">{generation.notes}</p>}
 

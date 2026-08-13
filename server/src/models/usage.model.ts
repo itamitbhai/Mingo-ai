@@ -1,7 +1,13 @@
 import { Schema, model, Document, Types } from 'mongoose';
 import { applyToJSON } from '../utils/applyToJSON';
 
-export type UsagePurpose = 'chat' | 'planner' | 'frontend_agent' | 'backend_agent' | 'database_agent';
+export type UsagePurpose =
+  | 'chat'
+  | 'planner'
+  | 'frontend_agent'
+  | 'backend_agent'
+  | 'database_agent'
+  | 'testing_agent';
 
 export interface UsageDocument extends Document {
   _id: Types.ObjectId;
@@ -39,7 +45,7 @@ const usageSchema = new Schema<UsageDocument>(
     },
     purpose: {
       type: String,
-      enum: ['chat', 'planner', 'frontend_agent', 'backend_agent', 'database_agent'],
+      enum: ['chat', 'planner', 'frontend_agent', 'backend_agent', 'database_agent', 'testing_agent'],
       default: 'chat',
     },
     inputTokens: { type: Number, default: null },

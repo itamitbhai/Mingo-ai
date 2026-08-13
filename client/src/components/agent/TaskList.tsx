@@ -14,12 +14,13 @@ interface TaskListProps {
   busyTaskId: string | null;
   onRun: (taskId: string) => void;
   onReview: (task: ITaskBoardItem) => void;
+  onRunTests?: (task: ITaskBoardItem) => void;
 }
 
-/** Task board (spec §54, Phase 7 §38) — visibility only, no orchestration. Every task from the plan
- *  is shown; only frontend- and backend-typed tasks are runnable (see `TaskCard`) — database/
- *  testing/devops/security tasks belong to agents that don't exist yet and show as unavailable. */
-export function TaskList({ tasks, busyTaskId, onRun, onReview }: TaskListProps) {
+/** Task board (spec §54, Phase 7 §38, Phase 9 §63) — visibility only, no orchestration. Every task
+ *  from the plan is shown; frontend/backend/database/testing tasks are runnable (see `TaskCard`) —
+ *  devops/security/deployment tasks belong to agents that don't exist yet and show as unavailable. */
+export function TaskList({ tasks, busyTaskId, onRun, onReview, onRunTests }: TaskListProps) {
   if (tasks.length === 0) {
     return <p className="text-sm text-muted-foreground">No tasks in this plan yet.</p>;
   }
@@ -43,6 +44,7 @@ export function TaskList({ tasks, busyTaskId, onRun, onReview }: TaskListProps) 
                   isBusy={busyTaskId === task.id}
                   onRun={onRun}
                   onReview={onReview}
+                  onRunTests={onRunTests}
                 />
               ))}
             </div>

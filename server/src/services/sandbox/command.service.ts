@@ -60,12 +60,8 @@ export function detectTestCommandFromPackageJson(
 async function findPackageJsonFiles(dir: string, depth: number, root: string, acc: string[]): Promise<void> {
   if (depth > MAX_DEPTH) return;
 
-  let entries: Awaited<ReturnType<typeof readdir>>;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
+  const entries = await readdir(dir, { withFileTypes: true, encoding: 'utf8' }).catch(() => null);
+  if (!entries) return;
 
   for (const entry of entries) {
     if (entry.isFile() && entry.name === 'package.json') {

@@ -53,6 +53,12 @@ export const testingOperationSchema = z.discriminatedUnion('type', [
 
 export type TestingOperationOutput = z.infer<typeof testingOperationSchema>;
 
+/** A narrower operation union for `testing.fix.ts` (spec §41 "fix scope") — a targeted fix only ever
+ *  edits or creates a file, never renames/moves/deletes one. */
+export const testingFixOperationSchema = z.discriminatedUnion('type', [createOperationSchema, updateOperationSchema]);
+
+export type TestingFixOperationOutput = z.infer<typeof testingFixOperationSchema>;
+
 const dependencyRequestSchema = z.object({
   name: z.string().min(1),
   version: z.string().optional(),
@@ -69,7 +75,14 @@ const testSuitePlanSchema = z.object({
 export type TestSuitePlanOutput = z.infer<typeof testSuitePlanSchema>;
 
 /** `operations` requires at least one entry — same rationale as every other agent's `.min(1)`: a
- *  testing task with zero generated files isn't actionable. */
+ *  testing task with zero generated files isn't actionable.
+ *
+ *  Unlike the Backend/Database Agents (whose `contractWarnings` are computed server-side by diffing
+ *  structured output against the plan), the Testing Agent has no equivalent structured "frontend call
+ *  graph" to diff against — full static extraction of every fetch/axios call a frontend makes is out
+ *  of scope for this pass. Instead the model itself is asked to flag any contract mismatch it notices
+ *  while writing tests (spec §72) directly into `contractWarnings`, surfaced through the exact same
+ *  UI field the other agents use. */
 export const testingOutputSchema = z.object({
   operations: z.array(testingOperationSchema).min(1, 'at least one operation is required'),
   dependencyRequests: z.array(dependencyRequestSchema).default([]),

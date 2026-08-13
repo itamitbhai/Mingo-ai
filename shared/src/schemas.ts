@@ -378,6 +378,13 @@ export const createTestRunSchema = z.object({
 
 export type CreateTestRunInput = z.infer<typeof createTestRunSchema>;
 
+export const testRunQuerySchema = z.object({
+  planId: z.string().regex(OBJECT_ID_REGEX, 'Invalid plan id'),
+  taskId: z.string().min(1),
+});
+
+export type TestRunQueryInput = z.infer<typeof testRunQuerySchema>;
+
 export const rejectGenerationSchema = z.object({
   generationId: z.string().regex(OBJECT_ID_REGEX, 'Invalid generation id'),
 });

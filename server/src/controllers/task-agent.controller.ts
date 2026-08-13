@@ -5,6 +5,7 @@ import * as plannerService from '../agents/planner/planner.service';
 import * as frontendAgentService from '../agents/frontend/frontend.service';
 import * as backendAgentService from '../agents/backend/backend.service';
 import * as databaseAgentService from '../agents/database/database.service';
+import * as testingAgentService from '../agents/testing/testing.service';
 import { ApiError } from '../utils/ApiError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { getCurrentUser } from '../utils/getCurrentUser';
@@ -20,7 +21,7 @@ import { logger } from '../utils/logger';
  * duplicating them per agent would just be the same code three times over (spec §73/§75: "Do not
  * create duplicate APIs").
  *
- * A task that belongs to none of the three (testing/devops/security) falls through to the Frontend
+ * A task that belongs to none of the four (devops/security/deployment) falls through to the Frontend
  * Agent's own `isFrontendTask` check, which already rejects it with a message naming the real
  * owning agent — reused here rather than reimplemented.
  */
@@ -44,6 +45,7 @@ async function resolveTask(
 function pickAgentService(task: IPlanTask) {
   if (backendAgentService.isBackendTask(task)) return backendAgentService;
   if (databaseAgentService.isDatabaseTask(task)) return databaseAgentService;
+  if (testingAgentService.isTestingTask(task)) return testingAgentService;
   return frontendAgentService;
 }
 

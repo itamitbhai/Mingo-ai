@@ -33,7 +33,9 @@ export interface TestRunDocument extends Document {
   updatedAt: Date;
 }
 
-const MAX_RESULTS = 500;
+/** Enforced at the application layer (`testing.runner.ts` slices before saving), not via a schema
+ *  validator — see the comment on `results` below for why. */
+export const MAX_TEST_RESULTS = 500;
 
 const testRunSchema = new Schema<TestRunDocument>(
   {
@@ -63,14 +65,10 @@ const testRunSchema = new Schema<TestRunDocument>(
     scope: { type: Schema.Types.Mixed, default: 'all' },
     command: { type: String, maxlength: 500 },
     summary: { type: Schema.Types.Mixed },
-    results: {
-      type: [Schema.Types.Mixed],
-      default: [],
-      validate: {
-        validator: (value: unknown[]) => value.length <= MAX_RESULTS,
-        message: `A test run may store at most ${MAX_RESULTS} individual results`,
-      },
-    },
+    // A single `Mixed` field holding an array — same convention as `agentGeneration.model.ts`'s
+    // `operations`/`schemaContracts` — rather than `[Schema.Types.Mixed]`, which Mongoose's own
+    // typings resolve ambiguously against its `Schema[]` overload.
+    results: { type: Schema.Types.Mixed, default: [] },
     coverage: { type: Schema.Types.Mixed },
     logs: {
       stdout: { type: String, default: '' },

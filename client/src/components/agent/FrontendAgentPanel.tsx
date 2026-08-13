@@ -3,18 +3,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { toast } from 'sonner';
-import { ProjectPlanStatus, type ITaskBoardItem } from 'shared';
+import { ProjectPlanStatus, type ITaskBoardItem, type ITestResult, type ITestRunScope } from 'shared';
 
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import * as frontendAgentService from '@/services/frontend-agent.service';
 import * as plannerService from '@/services/planner/planner.service';
+import * as testRunService from '@/services/test-run.service';
 import { useFrontendAgentStore } from '@/store/use-frontend-agent-store';
+import { useTestRunStore } from '@/store/use-test-run-store';
 import type { FrontendAgentStreamEvent } from '@/types/frontend-agent';
+import type { TestRunStreamEvent } from '@/types/test-run';
 import { AgentProgress } from './AgentProgress';
 import { ChangePreview } from './ChangePreview';
 import { GenerationHistory } from './GenerationHistory';
 import { TaskList } from './TaskList';
+import { TestResultsPanel } from './TestResultsPanel';
 
 interface FrontendAgentPanelProps {
   projectId: string;
@@ -45,10 +49,28 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
   const setGenerationHistory = useFrontendAgentStore((state) => state.setGenerationHistory);
   const reset = useFrontendAgentStore((state) => state.reset);
 
+  const testRunStatus = useTestRunStore((state) => state.runStatus);
+  const testRunStage = useTestRunStore((state) => state.stage);
+  const testRunStageLabel = useTestRunStore((state) => state.stageLabel);
+  const testRunStreamError = useTestRunStore((state) => state.streamError);
+  const activeTestRun = useTestRunStore((state) => state.activeTestRun);
+  const testAnalyses = useTestRunStore((state) => state.analyses);
+  const startTestRun = useTestRunStore((state) => state.startRun);
+  const setTestRunStage = useTestRunStore((state) => state.setStage);
+  const setTestRunQueued = useTestRunStore((state) => state.setQueued);
+  const finishTestRun = useTestRunStore((state) => state.finishRun);
+  const failTestRun = useTestRunStore((state) => state.failRun);
+  const setAnalysis = useTestRunStore((state) => state.setAnalysis);
+  const resetTestRun = useTestRunStore((state) => state.reset);
+
   const [planId, setPlanId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
+  const [testRunTaskId, setTestRunTaskId] = useState<string | null>(null);
+  const [explainingIndex, setExplainingIndex] = useState<number | null>(null);
+  const [fixingIndex, setFixingIndex] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const testRunAbortRef = useRef<AbortController | null>(null);
 
   const loadTasks = useCallback(
     async (activePlanId: string) => {
@@ -88,8 +110,13 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
 
   useEffect(() => {
     reset();
+    resetTestRun();
+    setTestRunTaskId(null);
     void loadApprovedPlan();
-    return () => abortRef.current?.abort();
+    return () => {
+      abortRef.current?.abort();
+      testRunAbortRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -163,6 +190,9 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
       const token = await getToken();
       await frontendAgentService.applyGeneration(projectId, { generationId: activeGeneration.id }, token);
       toast.success('Changes applied');
+      if (activeGeneration.agentType === 'testing') {
+        setTestRunTaskId(activeGeneration.taskId);
+      }
       setActiveGeneration(null);
       if (planId) void loadTasks(planId);
     } catch (error) {
@@ -188,7 +218,100 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
     }
   }
 
+  async function runTests(task: ITaskBoardItem, scope: ITestRunScope = 'all') {
+    if (!planId) return;
+    setTestRunTaskId(task.id);
+    startTestRun(task.id);
+    const controller = new AbortController();
+    testRunAbortRef.current = controller;
+
+    try {
+      const token = await getToken();
+
+      const onEvent = (event: TestRunStreamEvent) => {
+        if (event.type === 'queued') {
+          setTestRunQueued(event.testRun);
+        } else if (event.type === 'stage') {
+          setTestRunStage(event.stage, event.label);
+        } else if (event.type === 'done') {
+          finishTestRun(event.testRun);
+          const failed = event.testRun.summary?.failed ?? 0;
+          if (event.testRun.status === 'passed') {
+            toast.success('All tests passed');
+          } else if (failed > 0) {
+            toast.error(`${failed} test${failed === 1 ? '' : 's'} failed`);
+          } else {
+            toast.error('Test run did not pass — see logs for details');
+          }
+        } else if (event.type === 'error') {
+          failTestRun(event.message);
+          toast.error(event.message);
+        }
+      };
+
+      await testRunService.streamCreateTestRun(projectId, planId, task.id, scope, token, {
+        signal: controller.signal,
+        onEvent,
+      });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Failed to run tests';
+      failTestRun(message);
+      toast.error(message);
+    }
+  }
+
+  async function handleCancelTestRun() {
+    if (!activeTestRun) return;
+    testRunAbortRef.current?.abort();
+    try {
+      const token = await getToken();
+      await testRunService.cancelTestRun(projectId, activeTestRun.id, token);
+    } catch {
+      // Best-effort — the client-side abort already stopped listening either way.
+    }
+  }
+
+  async function handleExplainFailure(resultIndex: number) {
+    if (!activeTestRun) return;
+    setExplainingIndex(resultIndex);
+    try {
+      const token = await getToken();
+      const analysis = await testRunService.explainFailure(projectId, activeTestRun.id, resultIndex, token);
+      setAnalysis(resultIndex, analysis);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Failed to analyze this failure');
+    } finally {
+      setExplainingIndex(null);
+    }
+  }
+
+  async function handleGenerateTestFix(resultIndex: number) {
+    if (!activeTestRun) return;
+    setFixingIndex(resultIndex);
+    try {
+      const token = await getToken();
+      const generation = await testRunService.generateFix(projectId, activeTestRun.id, resultIndex, token);
+      setActiveGeneration(generation);
+      toast.success('Fix ready for review');
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Failed to generate a fix');
+    } finally {
+      setFixingIndex(null);
+    }
+  }
+
+  function handleRunFailedTests() {
+    const task = taskBoard.find((candidate) => candidate.id === testRunTaskId);
+    if (task) void runTests(task, 'failed');
+  }
+
+  function handleRunSingleFile(result: ITestResult) {
+    const task = taskBoard.find((candidate) => candidate.id === testRunTaskId);
+    if (task && result.file) void runTests(task, { file: result.file });
+  }
+
   const isStreaming = runStatus === 'streaming';
+  const isTestRunStreaming = testRunStatus === 'streaming';
 
   if (isLoading) {
     return <p className="p-3 text-sm text-muted-foreground">Loading…</p>;
@@ -238,11 +361,34 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
         </>
       )}
 
+      {testRunTaskId && (
+        <TestResultsPanel
+          testRun={activeTestRun}
+          isStreaming={isTestRunStreaming}
+          stage={testRunStage}
+          stageLabel={testRunStageLabel}
+          streamError={testRunStreamError}
+          analyses={testAnalyses}
+          explainingIndex={explainingIndex}
+          fixingIndex={fixingIndex}
+          onRunAll={() => {
+            const task = taskBoard.find((candidate) => candidate.id === testRunTaskId);
+            if (task) void runTests(task, 'all');
+          }}
+          onRunFailed={handleRunFailedTests}
+          onCancel={() => void handleCancelTestRun()}
+          onExplain={(index) => void handleExplainFailure(index)}
+          onGenerateFix={(index) => void handleGenerateTestFix(index)}
+          onRunFile={handleRunSingleFile}
+        />
+      )}
+
       <TaskList
         tasks={taskBoard}
         busyTaskId={isStreaming ? activeTaskId : null}
         onRun={(taskId) => void runTask(taskId)}
         onReview={(task) => void openReview(task)}
+        onRunTests={(task) => void runTests(task)}
       />
     </div>
   );

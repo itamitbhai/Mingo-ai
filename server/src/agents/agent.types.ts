@@ -76,3 +76,25 @@ export const DATABASE_AGENT_DEFINITION: AgentDefinition = {
     'database_security',
   ],
 };
+
+/** Phase 9 — the fourth agent that writes real code, and the first that also *executes* code (through
+ *  the sandbox execution engine, `services/sandbox/`) rather than only proposing file operations. Same
+ *  stateless-async-function pattern as every other agent, never a class. */
+export const TESTING_AGENT_DEFINITION: AgentDefinition = {
+  id: 'testing',
+  name: 'Mingo AI Testing Agent',
+  description:
+    'Consumes approved testing tasks from the Planner Agent, generates real unit/API/component tests through the Virtual Filesystem, and safely executes them in an ephemeral sandbox — never against production data or with access to secrets.',
+  capabilities: [
+    'testing_unit',
+    'testing_api',
+    'testing_integration',
+    'testing_component',
+    'testing_security',
+    'testing_execution',
+    'testing_failure_analysis',
+    'testing_fix_generation',
+    'testing_coverage',
+    'testing_regression',
+  ],
+};
