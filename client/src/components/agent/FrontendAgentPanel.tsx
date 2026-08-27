@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@clerk/nextjs';
+import { Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ProjectPlanStatus, type ITaskBoardItem, type ITestResult, type ITestRunScope } from 'shared';
 
@@ -23,12 +25,16 @@ import { TestResultsPanel } from './TestResultsPanel';
 interface FrontendAgentPanelProps {
   projectId: string;
   onClose?: () => void;
+  /** Called with the paths the AI just wrote to disk once a generation is applied, so the host
+   *  (the file explorer + any open editor tabs) can refresh instead of silently showing stale
+   *  content — applying here only ever touches the backend/DB, never the client's own caches. */
+  onApplied?: (paths: string[]) => void;
 }
 
 /** Top-level Frontend Agent panel embedded in the Browser IDE (spec §53) — mirrors
  *  `PlannerWorkspace.tsx`'s structure: SSE-driven actions live directly in this component, state in
  *  `useFrontendAgentStore`, REST/SSE calls in `frontend-agent.service.ts`. */
-export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelProps) {
+export function FrontendAgentPanel({ projectId, onClose, onApplied }: FrontendAgentPanelProps) {
   const { getToken } = useAuth();
 
   const runStatus = useFrontendAgentStore((state) => state.runStatus);
@@ -188,8 +194,13 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
     setIsSubmittingDecision(true);
     try {
       const token = await getToken();
-      await frontendAgentService.applyGeneration(projectId, { generationId: activeGeneration.id }, token);
+      const result = await frontendAgentService.applyGeneration(
+        projectId,
+        { generationId: activeGeneration.id },
+        token
+      );
       toast.success('Changes applied');
+      onApplied?.(result.operations.map((op) => op.path));
       if (activeGeneration.agentType === 'testing') {
         setTestRunTaskId(activeGeneration.taskId);
       }
@@ -319,11 +330,17 @@ export function FrontendAgentPanel({ projectId, onClose }: FrontendAgentPanelPro
 
   if (!planId) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
         <p className="text-sm font-medium">No approved plan yet</p>
         <p className="text-xs text-muted-foreground">
-          Approve a plan in the Planner before running the Frontend, Backend, or Database Agent.
+          Describe what you want to build in the Planner, then approve the plan it generates —
+          that&apos;s what unlocks the Frontend, Backend, and Database Agents here.
         </p>
+        <Button size="sm" asChild>
+          <Link href={`/projects/${projectId}/plan`}>
+            <Wand2 className="size-4" /> Open Planner
+          </Link>
+        </Button>
       </div>
     );
   }

@@ -51,8 +51,10 @@ export interface DatabaseOperationsPreview {
 }
 
 /** The model occasionally assumes a conventional file (e.g. a database connection module) already
- *  exists when it doesn't and proposes an "update" for it — repaired into a "create" here rather
- *  than failing the whole task, mirroring `backend.operations.ts`'s `normalizeCreateVsUpdate`. */
+ *  exists when it doesn't and proposes an "update" for it, or forgets an earlier task already
+ *  created a file it's now revising and proposes a "create" for it instead — either is repaired
+ *  here rather than failing the whole task, mirroring `backend.operations.ts`'s
+ *  `normalizeCreateVsUpdate`. */
 async function normalizeCreateVsUpdate(
   owner: Types.ObjectId,
   projectId: string,
@@ -60,14 +62,17 @@ async function normalizeCreateVsUpdate(
 ): Promise<IDatabaseOperation[]> {
   return Promise.all(
     operations.map(async (op) => {
-      if (op.type !== BatchOperationType.UPDATE) return op;
+      if (op.type !== BatchOperationType.UPDATE && op.type !== BatchOperationType.CREATE) return op;
 
       const exists = await vfs.readFile(owner, projectId, op.path).then(
         () => true,
         () => false
       );
 
-      return exists ? op : { ...op, type: BatchOperationType.CREATE };
+      if (op.type === BatchOperationType.UPDATE) {
+        return exists ? op : { ...op, type: BatchOperationType.CREATE };
+      }
+      return exists ? { ...op, type: BatchOperationType.UPDATE } : op;
     })
   );
 }

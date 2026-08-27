@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Types } from 'mongoose';
@@ -9,8 +10,11 @@ import { logger } from '../../utils/logger';
 import * as commandService from '../../services/sandbox/command.service';
 import * as materializer from '../../services/sandbox/materializer.service';
 import * as resultParser from '../../services/sandbox/result-parser.service';
-import * as runnerService from '../../services/sandbox/runner.service';
 import { DetectedTestCommand, ScopedTestCommand } from '../../services/sandbox/sandbox.types';
+import { runInContainer } from '../../sandbox/sandbox.executor';
+import { ensureImage } from '../../sandbox/sandbox.image';
+import { assertDockerAvailable, ensureNodeModulesVolume, getDockerClient } from '../../sandbox/sandbox.manager';
+import { ensureSandboxNetwork } from '../../sandbox/sandbox.network';
 import { OnTestRunStage, TestRunStage } from './testing.types';
 
 function emit(onStage: OnTestRunStage | undefined, stage: TestRunStage, label: string) {
@@ -47,11 +51,13 @@ function summarize(results: ITestResult[]): ITestRunSummary {
 }
 
 /**
- * Runs the full sandbox pipeline for one `TestRun` (spec §30/§33): materialize → discover commands →
- * install → execute → parse → persist → cleanup. Every field written back onto `testRun` traces back
- * to a real process (`runnerService.runProcess`'s actual `exitCode`) or a real parsed reporter file —
- * nothing here is simulated (spec §85). The temp directory is always removed in `finally`, even on
- * timeout/cancel/crash.
+ * Runs the full sandbox pipeline for one `TestRun` (spec §30/§33, Phase 11 spec §40): materialize →
+ * discover commands → install → execute → parse → persist → cleanup. Every install/test command now
+ * runs inside a real, isolated Docker container (`sandbox/sandbox.executor.ts`) instead of a host
+ * `child_process` — everything around that (materialize, detect command, parse JSON/coverage results)
+ * is unchanged from Phase 9. Every field written back onto `testRun` traces back to a real container
+ * exit code or a real parsed reporter file — nothing here is simulated (spec §85). The temp directory
+ * is always removed in `finally`, even on timeout/cancel/crash.
  */
 export async function executeTestRun(
   testRun: TestRunDocument,
@@ -68,6 +74,10 @@ export async function executeTestRun(
   let workspace: Awaited<ReturnType<typeof materializer.materializeWorkspace>> | null = null;
 
   try {
+    await assertDockerAvailable();
+    const docker = getDockerClient();
+    await ensureImage(docker);
+
     workspace = await materializer.materializeWorkspace(owner, projectId);
 
     const allCommands = await commandService.discoverTestCommands(workspace.dir);
@@ -87,22 +97,28 @@ export async function executeTestRun(
     testRun.status = TestRunStatus.INSTALLING;
     await testRun.save();
     emit(onStage, 'installing', 'Installing dependencies…');
+    await ensureSandboxNetwork(docker);
+    await ensureNodeModulesVolume(projectId);
 
     const installedDirs = new Set<string>();
     for (const command of commands) {
-      const dir = path.join(workspace.dir, command.cwd);
-      if (installedDirs.has(dir) || signal.aborted) continue;
-      installedDirs.add(dir);
+      if (installedDirs.has(command.cwd) || signal.aborted) continue;
+      installedDirs.add(command.cwd);
 
+      const dir = path.join(workspace.dir, command.cwd);
       const useLockfile = await commandService.hasLockfile(dir);
-      await runnerService.runProcess({
-        cwd: dir,
+
+      await runInContainer(docker, {
         command: 'npm',
         args: useLockfile
           ? ['ci', '--no-audit', '--no-fund', '--prefer-offline']
           : ['install', '--no-audit', '--no-fund', '--prefer-offline'],
+        workspaceDir: workspace.dir,
+        workingDir: command.cwd || undefined,
+        projectId,
+        networkMode: 'install',
         timeoutMs: testingAgentConfig.TEST_INSTALL_TIMEOUT_MS,
-        maxOutputChars: testingAgentConfig.TEST_RUN_MAX_OUTPUT_CHARS,
+        sandboxId: testRun.id,
         signal,
       });
     }
@@ -123,16 +139,22 @@ export async function executeTestRun(
       if (signal.aborted) break;
 
       const dir = path.join(workspace.dir, command.cwd);
-      const reportPath = materializer.scratchFilePath('.json');
-      const reporterArgs = commandService.buildReporterArgs(command.framework, reportPath);
+      // Must live INSIDE the bind-mounted workspace — the container can only write to `/workspace`,
+      // never an arbitrary host path (Phase 9's old `materializer.scratchFilePath` wrote outside it,
+      // which only worked when execution was still a host child_process).
+      const reportRelativePath = `.mingo-report-${randomUUID()}.json`;
+      const reporterArgs = commandService.buildReporterArgs(command.framework, `/workspace/${reportRelativePath}`);
       const extraArgs = [...reporterArgs, ...(command.extraArgs ?? [])];
 
-      const result = await runnerService.runProcess({
-        cwd: dir,
+      const result = await runInContainer(docker, {
         command: 'npm',
         args: ['run', command.script, ...(extraArgs.length ? ['--', ...extraArgs] : [])],
+        workspaceDir: workspace.dir,
+        workingDir: command.cwd || undefined,
+        projectId,
+        networkMode: 'none',
         timeoutMs: testingAgentConfig.TEST_RUN_TIMEOUT_MS,
-        maxOutputChars: testingAgentConfig.TEST_RUN_MAX_OUTPUT_CHARS,
+        sandboxId: testRun.id,
         signal,
       });
 
@@ -142,10 +164,10 @@ export async function executeTestRun(
       timedOut = timedOut || result.timedOut;
       if (result.exitCode) overallExitCode = result.exitCode;
 
-      const reportRaw = await readFile(reportPath, 'utf8').catch(() => null);
+      const reportRaw = await readFile(path.join(workspace.dir, reportRelativePath), 'utf8').catch(() => null);
       if (reportRaw) {
-        allResults.push(...resultParser.parseJestLikeReport(reportRaw, dir));
-        await rm(reportPath, { force: true }).catch(() => undefined);
+        allResults.push(...resultParser.parseJestLikeReport(reportRaw));
+        await rm(path.join(workspace.dir, reportRelativePath), { force: true }).catch(() => undefined);
       }
 
       const coverageRaw = await readFile(path.join(dir, 'coverage', 'coverage-summary.json'), 'utf8').catch(

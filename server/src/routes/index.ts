@@ -12,6 +12,8 @@ import { frontendAgentRouter } from './frontend-agent.routes';
 import { databaseRouter } from './database.routes';
 import { autopilotRouter } from './autopilot.routes';
 import { testRunRouter } from './test-run.routes';
+import { workflowRouter } from './workflow.routes';
+import { sandboxRouter } from './sandbox.routes';
 
 const router = Router();
 
@@ -29,6 +31,8 @@ router.use('/projects/:projectId/plans', planRouter);
 router.use('/projects/:projectId/plans/:planId/tasks', taskRouter);
 router.use('/projects/:projectId/database', databaseRouter);
 router.use('/projects/:projectId/test-runs', testRunRouter);
+router.use('/projects/:projectId/workflows', workflowRouter);
+router.use('/projects/:projectId/sandbox', sandboxRouter);
 router.use('/projects/:projectId/autopilot', autopilotRouter);
 router.use('/profile', profileRoutes);
 router.use('/settings', settingsRoutes);

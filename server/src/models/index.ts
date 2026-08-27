@@ -17,3 +17,5 @@ export * from './projectPlan.model';
 export * from './taskExecution.model';
 export * from './agentGeneration.model';
 export * from './testRun.model';
+export * from './workflow.model';
+export * from './sandboxSession.model';

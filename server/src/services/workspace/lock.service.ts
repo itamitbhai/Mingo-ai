@@ -5,10 +5,13 @@ import { ApiError } from '../../utils/ApiError';
 import { workspaceConfig } from '../../config/workspace.config';
 
 /**
- * Locking foundation for future AI agents/collaborators (spec §27). Not yet enforced on any write
- * path — this is the primitive a future concurrency layer builds on, not a concurrency system
- * shipping today. Locks always expire via the model's TTL index, so they can never go stale
- * permanently even if a caller forgets to release one.
+ * Locking foundation for AI agents/collaborators (spec §27). Enforced on every agent's apply path —
+ * each agent's own `*.operations.ts` (`applyFrontendOperations`, `applyBackendOperations`,
+ * `applyDatabaseOperations`, `applyTestingOperations`) acquires a `LockType.AGENT` lock on every
+ * existing target file before snapshotting/batch-applying, and releases it in a `finally` — so two
+ * concurrent writers to the same file (e.g. the Phase 10 Orchestrator running two agents in parallel)
+ * genuinely conflict here rather than silently racing. Locks always expire via the model's TTL index,
+ * so they can never go stale permanently even if a caller forgets to release one.
  */
 export async function acquireLock(
   project: Types.ObjectId,

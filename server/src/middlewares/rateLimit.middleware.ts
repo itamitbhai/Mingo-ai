@@ -109,3 +109,19 @@ export const testRunExecutionRateLimiter = createRateLimiter({
   max: env.TEST_RUN_RATE_LIMIT_MAX_REQUESTS,
   message: 'You are running tests too quickly. Please wait a few minutes and try again.',
 });
+
+/** Starting a workflow can itself trigger a full Planner run plus however many agent tasks the plan
+ *  has — at least as expensive as any single agent call, its own budget (Phase 10 spec §58). */
+export const orchestratorRateLimiter = createRateLimiter({
+  windowMs: env.ORCHESTRATOR_RATE_LIMIT_WINDOW_MS,
+  max: env.ORCHESTRATOR_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are starting workflows too quickly. Please wait a few minutes and try again.',
+});
+
+/** Every sandbox run spins up a real Docker container — its own budget, separate from every other
+ *  agent's AI-call-based limiter (Phase 11 spec §64). */
+export const sandboxRateLimiter = createRateLimiter({
+  windowMs: env.SANDBOX_RATE_LIMIT_WINDOW_MS,
+  max: env.SANDBOX_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are running sandbox commands too quickly. Please wait a moment and try again.',
+});

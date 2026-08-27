@@ -52,14 +52,14 @@ export function ProductPreview({ className }: { className?: string }) {
             </div>
 
             <div className="flex-1 rounded-xl border border-border/60 bg-card/60 p-4">
-              <div className="flex items-end justify-between gap-2 h-24">
+              <div className="flex h-24 items-end justify-between gap-2.5">
                 {bars.map((value, i) => (
                   <motion.div
                     key={i}
                     initial={{ height: 0 }}
                     animate={{ height: `${value}%` }}
                     transition={{ duration: 1, delay: i * 0.08, ease: 'easeOut' }}
-                    className="w-full rounded-full gradient-bg"
+                    className="min-h-2 w-full rounded-t-md gradient-bg opacity-90"
                   />
                 ))}
               </div>

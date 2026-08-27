@@ -41,11 +41,13 @@ export interface FrontendOperationsPreview {
   operationsWithDiff: IFrontendOperation[];
 }
 
-/** The model occasionally assumes a conventional file (e.g. "src/App.tsx") already exists in the
- *  project when it doesn't and proposes an "update" for it — which the generic preview validator
- *  correctly rejects, since there's nothing to update. Since a "create" and an "update" both carry
- *  the full intended file content, an "update" targeting a path that truly doesn't exist yet is
- *  unambiguously meant as a "create" — repair it here rather than failing the whole task over it. */
+/** The model sometimes gets "create" vs "update" backwards for a path it hasn't seen fully — either
+ *  assuming a conventional file (e.g. "src/App.tsx") already exists when it doesn't ("update" on a
+ *  missing path), or, on a later task, forgetting an earlier task already created a file it's now
+ *  revising ("create" on a path that's already there). The generic preview validator correctly
+ *  rejects both, but since a "create" and an "update" both carry the full intended file content,
+ *  either mismatch is unambiguous from which way `readFile` resolves — repair it here rather than
+ *  failing the whole task and forcing a manual re-run over what the model plainly intended. */
 async function normalizeCreateVsUpdate(
   owner: Types.ObjectId,
   projectId: string,
@@ -53,14 +55,17 @@ async function normalizeCreateVsUpdate(
 ): Promise<IFrontendOperation[]> {
   return Promise.all(
     operations.map(async (op) => {
-      if (op.type !== FrontendOperationType.UPDATE) return op;
+      if (op.type !== FrontendOperationType.UPDATE && op.type !== FrontendOperationType.CREATE) return op;
 
       const exists = await vfs.readFile(owner, projectId, op.path).then(
         () => true,
         () => false
       );
 
-      return exists ? op : { ...op, type: FrontendOperationType.CREATE };
+      if (op.type === FrontendOperationType.UPDATE) {
+        return exists ? op : { ...op, type: FrontendOperationType.CREATE };
+      }
+      return exists ? { ...op, type: FrontendOperationType.UPDATE } : op;
     })
   );
 }

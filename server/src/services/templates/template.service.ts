@@ -25,13 +25,74 @@ const COMMON_ENTRIES: StarterEntry[] = [
     type: FileEntryType.FILE,
     content: '# Add your environment variables here\n',
   },
-  {
-    path: 'package.json',
-    type: FileEntryType.FILE,
-    content: `${JSON.stringify({ name: 'mingo-project', version: '0.1.0', private: true, scripts: {} }, null, 2)}\n`,
-  },
   { path: 'public', type: FileEntryType.FOLDER },
 ];
+
+interface PackageJsonContribution {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
+}
+
+/** `npm run dev`/`build`/`start` need real scripts and real installable dependencies to mean
+ *  anything in the sandbox terminal — an empty `scripts: {}` (the old behavior) meant every
+ *  freshly-created project failed on the very first command a user tried. One contribution per
+ *  chosen frontend/backend stack, merged into a single package.json (spec §15/§16). */
+function frontendPackageContribution(frontend: FrontendStack): PackageJsonContribution {
+  switch (frontend) {
+    case FrontendStack.NEXTJS:
+      return {
+        dependencies: { next: '^15.5.22', react: '19.2.8', 'react-dom': '19.2.8' },
+        devDependencies: { typescript: '^5.9.3', '@types/react': '^19.2.18', '@types/node': '^22.20.1' },
+        scripts: { dev: 'next dev', build: 'next build', start: 'next start' },
+      };
+    case FrontendStack.VUE:
+      return {
+        dependencies: { vue: '^3.5.13' },
+        devDependencies: { vite: '^6.3.5', '@vitejs/plugin-vue': '^5.2.1' },
+        scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
+      };
+    case FrontendStack.REACT:
+    default:
+      return {
+        dependencies: { react: '19.2.8', 'react-dom': '19.2.8' },
+        devDependencies: { vite: '^6.3.5', '@vitejs/plugin-react': '^4.3.4' },
+        scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
+      };
+  }
+}
+
+function backendPackageContribution(backend: BackendStack): PackageJsonContribution {
+  switch (backend) {
+    case BackendStack.EXPRESS:
+      return { dependencies: { express: '^4.22.2' }, scripts: { server: 'node server/index.js' } };
+    case BackendStack.NODE:
+      return { scripts: { server: 'node server/index.js' } };
+    case BackendStack.NESTJS:
+    default:
+      return {};
+  }
+}
+
+function buildPackageJsonEntry(frontend: FrontendStack, backend: BackendStack): StarterEntry {
+  const front = frontendPackageContribution(frontend);
+  const back = backendPackageContribution(backend);
+
+  const packageJson = {
+    name: 'mingo-project',
+    version: '0.1.0',
+    private: true,
+    scripts: { ...front.scripts, ...back.scripts },
+    dependencies: { ...front.dependencies, ...back.dependencies },
+    devDependencies: { ...front.devDependencies, ...back.devDependencies },
+  };
+
+  return {
+    path: 'package.json',
+    type: FileEntryType.FILE,
+    content: `${JSON.stringify(packageJson, null, 2)}\n`,
+  };
+}
 
 /** Technology-aware frontend structure — one template per `FrontendStack` option (spec §15/§16). */
 function frontendEntries(frontend: FrontendStack): StarterEntry[] {
@@ -70,7 +131,12 @@ export async function createStarterFiles(
   frontend: FrontendStack,
   backend: BackendStack
 ): Promise<void> {
-  const entries = [...COMMON_ENTRIES, ...frontendEntries(frontend), ...backendEntries(backend)];
+  const entries = [
+    ...COMMON_ENTRIES,
+    buildPackageJsonEntry(frontend, backend),
+    ...frontendEntries(frontend),
+    ...backendEntries(backend),
+  ];
 
   await ProjectFileModel.insertMany(
     entries.map((entry) => {

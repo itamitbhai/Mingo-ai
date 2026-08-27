@@ -1,11 +1,13 @@
 'use client';
 
-import { AlertCircle, AlertTriangle, Info, Terminal as TerminalIcon } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import type { EditorProblem } from '@/types/workspace';
 
 interface BottomPanelProps {
+  projectId: string;
   problems: EditorProblem[];
   logs: string[];
   onSelectProblem: (filePath: string, line: number) => void;
@@ -18,7 +20,7 @@ const SEVERITY_COLOR = {
   info: 'text-muted-foreground',
 } as const;
 
-export function BottomPanel({ problems, logs, onSelectProblem }: BottomPanelProps) {
+export function BottomPanel({ projectId, problems, logs, onSelectProblem }: BottomPanelProps) {
   return (
     <Tabs defaultValue="problems" className="flex h-full flex-col gap-0">
       <TabsList className="h-9 w-fit shrink-0 rounded-none border-b border-border bg-transparent p-0">
@@ -68,11 +70,8 @@ export function BottomPanel({ problems, logs, onSelectProblem }: BottomPanelProp
         {logs.length === 0 ? 'No logs yet.' : logs.map((log, index) => <div key={index}>{log}</div>)}
       </TabsContent>
 
-      <TabsContent
-        value="terminal"
-        className="flex flex-1 items-center justify-center gap-2 p-3 text-sm text-muted-foreground"
-      >
-        <TerminalIcon className="size-4" /> Terminal will be available in a future version.
+      <TabsContent value="terminal" className="flex-1 overflow-hidden">
+        <TerminalPanel projectId={projectId} />
       </TabsContent>
     </Tabs>
   );

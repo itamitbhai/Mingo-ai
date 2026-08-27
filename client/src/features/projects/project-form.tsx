@@ -1,8 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { Controller, useForm, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { Code2, Layers, Loader2, Server } from 'lucide-react';
 import { createProjectSchema, type CreateProjectInput } from 'shared';
 
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import {
   AUTH_OPTIONS,
   BACKEND_OPTIONS,
@@ -34,6 +36,46 @@ type SelectFieldName =
   | 'authentication'
   | 'styling'
   | 'deployment';
+
+type ProjectType = 'frontend' | 'backend' | 'fullstack';
+
+const PROJECT_TYPES: { value: ProjectType; label: string; description: string; icon: typeof Code2 }[] = [
+  { value: 'frontend', label: 'Frontend', description: 'Client-side app only', icon: Code2 },
+  { value: 'backend', label: 'Backend', description: 'API/server only', icon: Server },
+  { value: 'fullstack', label: 'Full Stack', description: 'Frontend + backend', icon: Layers },
+];
+
+function ProjectTypeSelector({ value, onChange }: { value: ProjectType; onChange: (next: ProjectType) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>Project type</Label>
+      <div className="grid grid-cols-3 gap-2">
+        {PROJECT_TYPES.map((type) => {
+          const Icon = type.icon;
+          const isActive = value === type.value;
+          return (
+            <button
+              key={type.value}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => onChange(type.value)}
+              className={cn(
+                'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-center transition-colors',
+                isActive
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-input bg-background/50 text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+              )}
+            >
+              <Icon className={cn('size-5', isActive && 'text-primary')} />
+              <span className="text-sm font-medium">{type.label}</span>
+              <span className="text-[11px] leading-tight text-muted-foreground">{type.description}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function TechSelectField({
   control,
@@ -82,6 +124,7 @@ interface ProjectFormProps {
 }
 
 export function ProjectForm({ defaultValues, onSubmit, onCancel, submitLabel }: ProjectFormProps) {
+  const [projectType, setProjectType] = useState<ProjectType>('fullstack');
   const {
     register,
     handleSubmit,
@@ -92,6 +135,9 @@ export function ProjectForm({ defaultValues, onSubmit, onCancel, submitLabel }: 
     resolver: zodResolver(createProjectSchema),
     defaultValues,
   });
+
+  const showFrontendFields = projectType === 'frontend' || projectType === 'fullstack';
+  const showBackendFields = projectType === 'backend' || projectType === 'fullstack';
 
   const internalSubmit = async (data: CreateProjectInput) => {
     try {
@@ -126,42 +172,54 @@ export function ProjectForm({ defaultValues, onSubmit, onCancel, submitLabel }: 
         )}
       </div>
 
+      <ProjectTypeSelector value={projectType} onChange={setProjectType} />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <TechSelectField
-          control={control}
-          name="frontend"
-          label="Frontend"
-          options={FRONTEND_OPTIONS}
-          error={errors.frontend?.message}
-        />
-        <TechSelectField
-          control={control}
-          name="backend"
-          label="Backend"
-          options={BACKEND_OPTIONS}
-          error={errors.backend?.message}
-        />
-        <TechSelectField
-          control={control}
-          name="database"
-          label="Database"
-          options={DATABASE_OPTIONS}
-          error={errors.database?.message}
-        />
-        <TechSelectField
-          control={control}
-          name="authentication"
-          label="Authentication"
-          options={AUTH_OPTIONS}
-          error={errors.authentication?.message}
-        />
-        <TechSelectField
-          control={control}
-          name="styling"
-          label="Styling"
-          options={STYLING_OPTIONS}
-          error={errors.styling?.message}
-        />
+        {showFrontendFields && (
+          <TechSelectField
+            control={control}
+            name="frontend"
+            label="Frontend"
+            options={FRONTEND_OPTIONS}
+            error={errors.frontend?.message}
+          />
+        )}
+        {showBackendFields && (
+          <TechSelectField
+            control={control}
+            name="backend"
+            label="Backend"
+            options={BACKEND_OPTIONS}
+            error={errors.backend?.message}
+          />
+        )}
+        {showBackendFields && (
+          <TechSelectField
+            control={control}
+            name="database"
+            label="Database"
+            options={DATABASE_OPTIONS}
+            error={errors.database?.message}
+          />
+        )}
+        {showBackendFields && (
+          <TechSelectField
+            control={control}
+            name="authentication"
+            label="Authentication"
+            options={AUTH_OPTIONS}
+            error={errors.authentication?.message}
+          />
+        )}
+        {showFrontendFields && (
+          <TechSelectField
+            control={control}
+            name="styling"
+            label="Styling"
+            options={STYLING_OPTIONS}
+            error={errors.styling?.message}
+          />
+        )}
         <TechSelectField
           control={control}
           name="deployment"

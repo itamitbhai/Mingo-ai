@@ -12,20 +12,21 @@ const listPlansMock = vi.fn();
 const streamPlanGenerationMock = vi.fn();
 const streamRegeneratePlanMock = vi.fn();
 const updatePlanMock = vi.fn();
-const streamAutopilotMock = vi.fn();
+const getPlanMock = vi.fn();
+const createWorkflowMock = vi.fn();
 
 vi.mock('@/services/planner/planner.service', () => ({
   listPlans: (...args: unknown[]) => listPlansMock(...args),
   streamPlanGeneration: (...args: unknown[]) => streamPlanGenerationMock(...args),
   streamRegeneratePlan: (...args: unknown[]) => streamRegeneratePlanMock(...args),
   updatePlan: (...args: unknown[]) => updatePlanMock(...args),
+  getPlan: (...args: unknown[]) => getPlanMock(...args),
 }));
 
-vi.mock('@/services/autopilot.service', () => ({
-  streamAutopilot: (...args: unknown[]) => streamAutopilotMock(...args),
+vi.mock('@/services/workflow.service', () => ({
+  createWorkflow: (...args: unknown[]) => createWorkflowMock(...args),
 }));
 
-import { useAutopilotStore } from '@/store/use-autopilot-store';
 import { usePlannerStore } from '@/store/use-planner-store';
 import { PlannerWorkspace } from './PlannerWorkspace';
 
@@ -66,7 +67,6 @@ describe('PlannerWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     usePlannerStore.getState().reset();
-    useAutopilotStore.getState().reset();
     listPlansMock.mockResolvedValue(EMPTY_PAGE);
   });
 
@@ -135,18 +135,9 @@ describe('PlannerWorkspace', () => {
     );
   });
 
-  it('streams a Build It Now run and lands the resulting plan in the planner store', async () => {
-    streamAutopilotMock.mockImplementation(
-      async (_projectId: string, _body: unknown, _token: string | null, handlers: { onEvent: (e: unknown) => void }) => {
-        handlers.onEvent({ phase: 'planning', type: 'stage', stage: 'generating', label: 'Generating the plan…' });
-        handlers.onEvent({
-          type: 'done',
-          plan: PLAN,
-          tasks: [{ taskId: 'T1', title: 'Build header', outcome: 'completed', generationId: 'g1' }],
-          stoppedEarly: false,
-        });
-      }
-    );
+  it('starts a workflow via "Build It Now" and lands the resulting plan in the planner store', async () => {
+    createWorkflowMock.mockResolvedValue({ id: 'wf1', plan: 'plan1', status: 'queued' });
+    getPlanMock.mockResolvedValue(PLAN);
 
     render(<PlannerWorkspace projectId="p1" />);
 
@@ -155,13 +146,26 @@ describe('PlannerWorkspace', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /build it now/i }));
 
-    await waitFor(() => expect(screen.getByText('Build header')).toBeInTheDocument());
-    expect(streamAutopilotMock).toHaveBeenCalledWith(
+    await waitFor(() => expect(screen.getByText(/open workspace/i)).toBeInTheDocument());
+    expect(createWorkflowMock).toHaveBeenCalledWith(
       'p1',
-      { prompt: 'Build a todo app for tracking chores' },
-      'token',
-      expect.anything()
+      { prompt: 'Build a todo app for tracking chores', mode: 'review' },
+      'token'
     );
+    expect(getPlanMock).toHaveBeenCalledWith('p1', 'plan1', 'token');
     expect(usePlannerStore.getState().currentPlan).toEqual(PLAN);
+  });
+
+  it('shows a friendly error when starting a workflow fails', async () => {
+    createWorkflowMock.mockRejectedValue(new Error('boom'));
+
+    render(<PlannerWorkspace projectId="p1" />);
+
+    fireEvent.change(await screen.findByLabelText('Project request'), {
+      target: { value: 'Build a todo app for tracking chores' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /build it now/i }));
+
+    await waitFor(() => expect(screen.getByText('Failed to start the workflow')).toBeInTheDocument());
   });
 });

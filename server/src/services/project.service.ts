@@ -11,6 +11,7 @@ import { ApiError } from '../utils/ApiError';
 import { buildPaginationMeta } from '../utils/paginate';
 import { logger } from '../utils/logger';
 import { logActivity } from './activity.service';
+import { deleteProjectSandboxVolume } from '../sandbox/sandbox.manager';
 import { createStarterFiles } from './templates/template.service';
 import { ensureWorkspace } from './workspace/workspace.service';
 
@@ -100,6 +101,7 @@ export async function updateProject(
 export async function deleteProject(owner: Types.ObjectId, id: string) {
   const project = await getProjectById(owner, id);
   await project.deleteOne();
+  await deleteProjectSandboxVolume(id);
 
   await logActivity(owner, ActivityType.PROJECT_DELETED, `Deleted project "${project.name}"`, {
     projectId: id,

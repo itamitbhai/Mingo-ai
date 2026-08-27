@@ -390,3 +390,52 @@ export const rejectGenerationSchema = z.object({
 });
 
 export type RejectGenerationInput = z.infer<typeof rejectGenerationSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 10 — Multi-Agent Orchestrator
+// ---------------------------------------------------------------------------
+
+/** Exactly one of `prompt` (generate + auto-approve a new plan first, mirroring Autopilot's existing
+ *  behavior) or `planId` (run against an already-approved plan) must be given — never both, never
+ *  neither. */
+export const createWorkflowSchema = z
+  .object({
+    prompt: z
+      .string()
+      .trim()
+      .min(PLAN_PROMPT_MIN_LENGTH, `Describe what you want to build in at least ${PLAN_PROMPT_MIN_LENGTH} characters`)
+      .max(PLAN_PROMPT_MAX_LENGTH, `Keep the request under ${PLAN_PROMPT_MAX_LENGTH} characters`)
+      .optional(),
+    conversationId: z.string().regex(OBJECT_ID_REGEX, 'Invalid conversation id').optional(),
+    planId: z.string().regex(OBJECT_ID_REGEX, 'Invalid plan id').optional(),
+    mode: z.enum(['auto', 'review']).default('review'),
+  })
+  .refine((value) => Boolean(value.prompt) !== Boolean(value.planId), {
+    message: 'Provide either a prompt or a planId, not both',
+  });
+
+export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Secure Terminal + Sandbox Execution Environment
+// ---------------------------------------------------------------------------
+
+/** The only binaries a sandbox will ever run this pass (Phase 11 spec §9) — kept here so both the
+ *  request schema and any client-side hinting share one source of truth; the server's own
+ *  `sandbox.security.ts` is still the actual enforcement point, this is just the Zod-level shape. */
+export const SANDBOX_ALLOWED_COMMANDS = ['npm', 'npx', 'node', 'git'] as const;
+
+/** Exactly one of a structured `{ command, args }` (from a trusted internal caller that already knows
+ *  the exact argv — the Testing Agent, the Orchestrator) or a free-text `commandLine` (from the
+ *  terminal UI, parsed and validated server-side before ever reaching a container) must be given. */
+export const createSandboxRunSchema = z
+  .object({
+    command: z.enum(SANDBOX_ALLOWED_COMMANDS).optional(),
+    args: z.array(z.string().max(500)).max(50).optional(),
+    commandLine: z.string().trim().min(1).max(1000).optional(),
+  })
+  .refine((value) => Boolean(value.command) !== Boolean(value.commandLine), {
+    message: 'Provide either { command, args } or commandLine, not both',
+  });
+
+export type CreateSandboxRunInput = z.infer<typeof createSandboxRunSchema>;

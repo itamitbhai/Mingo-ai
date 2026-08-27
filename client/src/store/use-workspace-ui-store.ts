@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_EDITOR_PREFERENCES, type EditorPreferences } from '@/types/workspace';
@@ -19,12 +20,14 @@ interface WorkspaceUIState {
   isExplorerOpen: boolean;
   isAIChatOpen: boolean;
   isAgentPanelOpen: boolean;
+  isWorkflowPanelOpen: boolean;
   isBottomPanelOpen: boolean;
   editorPreferences: EditorPreferences;
 
   toggleExplorer: () => void;
   toggleAIChat: () => void;
   toggleAgentPanel: () => void;
+  toggleWorkflowPanel: () => void;
   toggleBottomPanel: () => void;
   setEditorPreferences: (prefs: Partial<EditorPreferences>) => void;
 
@@ -56,12 +59,14 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>()(
       isExplorerOpen: true,
       isAIChatOpen: true,
       isAgentPanelOpen: false,
+      isWorkflowPanelOpen: false,
       isBottomPanelOpen: false,
       editorPreferences: DEFAULT_EDITOR_PREFERENCES,
 
       toggleExplorer: () => set((state) => ({ isExplorerOpen: !state.isExplorerOpen })),
       toggleAIChat: () => set((state) => ({ isAIChatOpen: !state.isAIChatOpen })),
       toggleAgentPanel: () => set((state) => ({ isAgentPanelOpen: !state.isAgentPanelOpen })),
+      toggleWorkflowPanel: () => set((state) => ({ isWorkflowPanelOpen: !state.isWorkflowPanelOpen })),
       toggleBottomPanel: () => set((state) => ({ isBottomPanelOpen: !state.isBottomPanelOpen })),
       setEditorPreferences: (prefs) =>
         set((state) => ({ editorPreferences: { ...state.editorPreferences, ...prefs } })),
@@ -158,9 +163,26 @@ export const useWorkspaceUIStore = create<WorkspaceUIState>()(
         isExplorerOpen: state.isExplorerOpen,
         isAIChatOpen: state.isAIChatOpen,
         isAgentPanelOpen: state.isAgentPanelOpen,
+        isWorkflowPanelOpen: state.isWorkflowPanelOpen,
         isBottomPanelOpen: state.isBottomPanelOpen,
         editorPreferences: state.editorPreferences,
       }),
+      // The Workspace tree is a Server Component's initial HTML lining up with a Client Component's
+      // first render — reading localStorage before that first render (persist's default behavior)
+      // makes the client's first paint reflect a previous session's expanded folders/open tabs while
+      // the server always rendered the bare defaults, a guaranteed hydration mismatch. Skipping
+      // hydration here and triggering it explicitly post-mount (see `useHydrateWorkspaceUIStore`)
+      // keeps the first client render identical to the server's, then applies the persisted state
+      // as a normal post-hydration update.
+      skipHydration: true,
     }
   )
 );
+
+/** Call once near the root of the Workspace tree — restores the persisted UI state after the first
+ *  (hydration-safe) render, instead of `persist`'s default of reading localStorage before it. */
+export function useHydrateWorkspaceUIStore() {
+  useEffect(() => {
+    void useWorkspaceUIStore.persist.rehydrate();
+  }, []);
+}

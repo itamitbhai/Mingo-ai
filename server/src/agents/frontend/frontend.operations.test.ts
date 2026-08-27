@@ -50,12 +50,27 @@ describe('previewFrontendOperations', () => {
     expect(operationsWithDiff[0].originalContent).toBe('old content');
   });
 
-  it('leaves a create operation untouched', async () => {
+  it('leaves a create operation on a path that truly does not exist unchanged', async () => {
+    vi.mocked(vfs.readFile).mockRejectedValue(new Error('not found'));
+
     const { operationsWithDiff } = await previewFrontendOperations(owner, 'p1', [
       { type: 'create', path: 'src/New.tsx', content: 'x', reason: 'new file' },
     ]);
 
     expect(operationsWithDiff[0].type).toBe('create');
-    expect(vfs.readFile).not.toHaveBeenCalled();
+  });
+
+  it("repairs a 'create' on a path that already exists into an 'update'", async () => {
+    vi.mocked(vfs.readFile).mockResolvedValue({ content: 'old content' } as never);
+
+    const { operationsWithDiff } = await previewFrontendOperations(owner, 'p1', [
+      { type: 'create', path: 'src/components/TodoList.tsx', content: 'new content', reason: 'todo list' },
+    ]);
+
+    expect(operationsWithDiff[0].type).toBe('update');
+    expect(operationsWithDiff[0].originalContent).toBe('old content');
+
+    const batchOps = vi.mocked(previewService.previewOperations).mock.calls[0][2] as unknown as Array<{ type: string }>;
+    expect(batchOps[0].type).toBe('update');
   });
 });

@@ -341,3 +341,125 @@ export const TestRunStatus = {
   TIMEOUT: 'timeout',
 } as const;
 export type TestRunStatus = (typeof TestRunStatus)[keyof typeof TestRunStatus];
+
+/** Lifecycle of a `Workflow` — the Orchestrator's persisted, resumable run (Phase 10 spec §6). */
+export const WorkflowStatus = {
+  CREATED: 'created',
+  PLANNING: 'planning',
+  PLANNED: 'planned',
+  QUEUED: 'queued',
+  RUNNING: 'running',
+  PAUSED: 'paused',
+  WAITING_FOR_APPROVAL: 'waiting_for_approval',
+  FIXING: 'fixing',
+  TESTING: 'testing',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+} as const;
+export type WorkflowStatus = (typeof WorkflowStatus)[keyof typeof WorkflowStatus];
+
+/** Per-task state within a `Workflow` (Phase 10 spec §5) — richer than `TaskExecutionStatus` because
+ *  the orchestrator needs to distinguish "blocked by an unmet dependency" from "ready to schedule"
+ *  from "queued behind the concurrency limit," none of which the simpler per-task `TaskExecution`
+ *  status needs to represent on its own. */
+export const WorkflowTaskStatus = {
+  PENDING: 'pending',
+  BLOCKED: 'blocked',
+  READY: 'ready',
+  QUEUED: 'queued',
+  RUNNING: 'running',
+  WAITING: 'waiting',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+  RETRYING: 'retrying',
+  SKIPPED: 'skipped',
+  NEEDS_REVIEW: 'needs_review',
+} as const;
+export type WorkflowTaskStatus = (typeof WorkflowTaskStatus)[keyof typeof WorkflowTaskStatus];
+
+/** Whether a workflow auto-applies safe generations or stops for review on every one (Phase 10
+ *  spec §16) — a per-workflow flag, never a repurposing of the global `AI_AUTO_APPLY` safety switch. */
+export const WorkflowMode = {
+  AUTO: 'auto',
+  REVIEW: 'review',
+} as const;
+export type WorkflowMode = (typeof WorkflowMode)[keyof typeof WorkflowMode];
+
+/** Classifies why a workflow task failed (Phase 10 spec §23) — drives `orchestrator.retry.ts`'s
+ *  retry-or-not decision: only transient categories (AI_ERROR/TIMEOUT/RUNTIME_ERROR) are ever
+ *  auto-retried. */
+export const FailureCategory = {
+  AI_ERROR: 'AI_ERROR',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  DEPENDENCY_ERROR: 'DEPENDENCY_ERROR',
+  FILE_CONFLICT: 'FILE_CONFLICT',
+  BUILD_ERROR: 'BUILD_ERROR',
+  TEST_FAILURE: 'TEST_FAILURE',
+  SECURITY_ERROR: 'SECURITY_ERROR',
+  TIMEOUT: 'TIMEOUT',
+  AUTHORIZATION_ERROR: 'AUTHORIZATION_ERROR',
+  RUNTIME_ERROR: 'RUNTIME_ERROR',
+  UNKNOWN_ERROR: 'UNKNOWN_ERROR',
+} as const;
+export type FailureCategory = (typeof FailureCategory)[keyof typeof FailureCategory];
+
+/** One real-time workflow event (Phase 10 spec §19/§21) — the fixed, allowlisted shape every
+ *  `orchestrator.events.ts` payload is built from, so a raw error object or env can never leak
+ *  through. */
+export const WorkflowEventType = {
+  WORKFLOW_STARTED: 'workflow.started',
+  WORKFLOW_PLANNED: 'workflow.planned',
+  TASK_READY: 'task.ready',
+  TASK_STARTED: 'task.started',
+  AGENT_STARTED: 'agent.started',
+  AGENT_PROGRESS: 'agent.progress',
+  AGENT_COMPLETED: 'agent.completed',
+  TASK_COMPLETED: 'task.completed',
+  TASK_FAILED: 'task.failed',
+  TASK_RETRYING: 'task.retrying',
+  TASK_NEEDS_REVIEW: 'task.needs_review',
+  WORKFLOW_PAUSED: 'workflow.paused',
+  WORKFLOW_RESUMED: 'workflow.resumed',
+  WORKFLOW_COMPLETED: 'workflow.completed',
+  WORKFLOW_FAILED: 'workflow.failed',
+  WORKFLOW_CANCELLED: 'workflow.cancelled',
+  FIX_STARTED: 'fix.started',
+  TEST_STARTED: 'test.started',
+  TEST_COMPLETED: 'test.completed',
+} as const;
+export type WorkflowEventType = (typeof WorkflowEventType)[keyof typeof WorkflowEventType];
+
+/** Lifecycle of one sandboxed command execution (Phase 11 spec §7) — one `SandboxSession` document
+ *  per command, never a long-lived container reused across multiple commands (spec §6's own
+ *  lifecycle diagram is create → run one command → destroy). */
+export const SandboxStatus = {
+  CREATING: 'creating',
+  STARTING: 'starting',
+  READY: 'ready',
+  RUNNING: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  TIMEOUT: 'timeout',
+  CANCELLED: 'cancelled',
+  DESTROYING: 'destroying',
+  DESTROYED: 'destroyed',
+} as const;
+export type SandboxStatus = (typeof SandboxStatus)[keyof typeof SandboxStatus];
+
+/** Real-time terminal/sandbox event types (Phase 11 spec §13/§65) — same allowlisted-payload
+ *  discipline as `WorkflowEventType`: never a raw error object, env, or secret. */
+export const SandboxEventType = {
+  SANDBOX_CREATED: 'sandbox:created',
+  SANDBOX_READY: 'sandbox:ready',
+  TERMINAL_STARTED: 'terminal:started',
+  TERMINAL_OUTPUT: 'terminal:output',
+  TERMINAL_ERROR: 'terminal:error',
+  TERMINAL_EXIT: 'terminal:exit',
+  TERMINAL_TIMEOUT: 'terminal:timeout',
+  TERMINAL_CANCELLED: 'terminal:cancelled',
+  SANDBOX_STOPPED: 'sandbox:stopped',
+  SANDBOX_DESTROYED: 'sandbox:destroyed',
+} as const;
+export type SandboxEventType = (typeof SandboxEventType)[keyof typeof SandboxEventType];

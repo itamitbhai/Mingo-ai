@@ -62,6 +62,35 @@ const envSchema = z.object({
   TESTING_AGENT_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
   TEST_RUN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
   TEST_RUN_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
+
+  // Multi-Agent Orchestrator (Phase 10) — the scheduler/executor never calls the AI provider
+  // directly (it only ever calls the four agents' own service functions, each already configured),
+  // so there's no orchestrator-specific model here — only scheduling/safety limits.
+  MAX_CONCURRENT_AGENTS: z.coerce.number().int().positive().default(3),
+  ORCHESTRATOR_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
+  ORCHESTRATOR_MAX_FIX_CYCLES: z.coerce.number().int().min(0).default(3),
+  ORCHESTRATOR_TASK_TIMEOUT_MS: z.coerce.number().int().positive().default(600000),
+  ORCHESTRATOR_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  ORCHESTRATOR_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(5),
+
+  // Secure Terminal + Sandbox Execution (Phase 11) — every generated/untrusted command now runs in a
+  // Docker container, never a host child_process. All limits are configurable; none are required.
+  SANDBOX_IMAGE_TAG: z.string().min(1).default('mingo-sandbox:node22-v1'),
+  SANDBOX_MEMORY_MB: z.coerce.number().int().positive().default(1024),
+  // The sandbox's rootfs is read-only, so `/tmp` (npm's cache + $HOME) is a tmpfs — this is its cap,
+  // separate from SANDBOX_MEMORY_MB. 128MB (the original default) overflows on a real `npm install`
+  // for anything beyond a trivial project (framework binaries like @next/swc alone can exceed that),
+  // producing ENOSPC even though the actual `/workspace` bind mount has plenty of host disk free.
+  SANDBOX_TMPFS_MB: z.coerce.number().int().positive().default(512),
+  SANDBOX_CPU_CORES: z.coerce.number().positive().default(1.5),
+  SANDBOX_PIDS_LIMIT: z.coerce.number().int().positive().default(256),
+  SANDBOX_DISK_LIMIT_MB: z.coerce.number().int().positive().default(2048),
+  SANDBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(300000),
+  SANDBOX_INSTALL_TIMEOUT_MS: z.coerce.number().int().positive().default(180000),
+  SANDBOX_MAX_LOG_CHARS: z.coerce.number().int().positive().default(200000),
+  SANDBOX_ORPHAN_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(300000),
+  SANDBOX_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  SANDBOX_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(20),
 });
 
 function loadEnv() {

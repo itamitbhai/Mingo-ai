@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { ICoverageSummary, ITestResult, TestResultStatus } from 'shared';
 
 /**
@@ -31,11 +30,15 @@ function mapStatus(status: string): TestResultStatus {
   return TestResultStatus.SKIPPED;
 }
 
-function toRelativePath(absoluteOrRelative: string, workspaceDir: string): string {
-  const relative = path.isAbsolute(absoluteOrRelative)
-    ? path.relative(workspaceDir, absoluteOrRelative)
-    : absoluteOrRelative;
-  return relative.split(path.sep).join('/');
+/** The test runner executes inside a container whose only bind mount is `/workspace` (Phase 11) — a
+ *  reported absolute file path is always inside that one POSIX filesystem namespace, never the host's,
+ *  so stripping the fixed `/workspace/` prefix is correct and simpler (and more robust) than the
+ *  previous host-`path.relative` math, which broke once execution moved off the host process. */
+function toRelativePath(absoluteOrRelative: string): string {
+  const posixPath = absoluteOrRelative.split('\\').join('/');
+  if (posixPath === '/workspace') return '';
+  if (posixPath.startsWith('/workspace/')) return posixPath.slice('/workspace/'.length);
+  return posixPath.replace(/^\/+/, '');
 }
 
 /** Best-effort extraction from Jest's free-text failure message — omitted entirely (not guessed) when
@@ -50,7 +53,7 @@ function extractExpectedActual(message: string | undefined): { expected?: string
   };
 }
 
-export function parseJestLikeReport(raw: string, workspaceDir: string): ITestResult[] {
+export function parseJestLikeReport(raw: string): ITestResult[] {
   let report: JestLikeReport;
   try {
     report = JSON.parse(raw) as JestLikeReport;
@@ -63,7 +66,7 @@ export function parseJestLikeReport(raw: string, workspaceDir: string): ITestRes
   const results: ITestResult[] = [];
 
   for (const fileResult of report.testResults) {
-    const file = toRelativePath(fileResult.name, workspaceDir);
+    const file = toRelativePath(fileResult.name);
 
     for (const assertion of fileResult.assertionResults ?? []) {
       const failureMessage = assertion.failureMessages?.[0];

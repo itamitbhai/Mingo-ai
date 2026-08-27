@@ -14,6 +14,7 @@ import {
   Sparkles,
   Camera,
   Wand2,
+  Workflow,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -35,10 +36,12 @@ interface WorkspaceHeaderProps {
   isExplorerOpen: boolean;
   isAIChatOpen: boolean;
   isAgentPanelOpen: boolean;
+  isWorkflowPanelOpen: boolean;
   isBottomPanelOpen: boolean;
   onToggleExplorer: () => void;
   onToggleAIChat: () => void;
   onToggleAgentPanel: () => void;
+  onToggleWorkflowPanel: () => void;
   onToggleBottomPanel: () => void;
   onSave: () => void;
   onOpenSettings: () => void;
@@ -56,10 +59,12 @@ export function WorkspaceHeader({
   isExplorerOpen,
   isAIChatOpen,
   isAgentPanelOpen,
+  isWorkflowPanelOpen,
   isBottomPanelOpen,
   onToggleExplorer,
   onToggleAIChat,
   onToggleAgentPanel,
+  onToggleWorkflowPanel,
   onToggleBottomPanel,
   onSave,
   onOpenSettings,
@@ -153,6 +158,16 @@ export function WorkspaceHeader({
           aria-pressed={isAgentPanelOpen}
         >
           <Bot className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={onToggleWorkflowPanel}
+          aria-label="Toggle Workflow"
+          aria-pressed={isWorkflowPanelOpen}
+        >
+          <Workflow className="size-4" />
         </Button>
         <Button variant="outline" size="sm" onClick={onSave}>
           <Save className="size-4" /> Save

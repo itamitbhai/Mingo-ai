@@ -9,6 +9,7 @@ import {
   DatabaseRelationType,
   DeploymentOption,
   DeploymentStatus,
+  FailureCategory,
   FileChangeType,
   FileEntryType,
   FrontendOperationType,
@@ -31,7 +32,13 @@ import {
   TestResultStatus,
   TestRunStatus,
   TestType,
+  SandboxEventType,
+  SandboxStatus,
   Theme,
+  WorkflowEventType,
+  WorkflowMode,
+  WorkflowStatus,
+  WorkflowTaskStatus,
   WorkspaceActivityAction,
   WorkspaceStatus,
 } from './enums';
@@ -743,6 +750,55 @@ export interface ITestFailureAnalysis {
   confidence: 'low' | 'medium' | 'high';
 }
 
+// ---------------------------------------------------------------------------
+// Phase 10 — Multi-Agent Orchestrator (Workflow)
+// ---------------------------------------------------------------------------
+
+/** Orchestrator-only overlay state for one plan task within a `Workflow` (Phase 10 spec §5/§31) —
+ *  never duplicates a generation's operations/content, which stays on `IAgentGeneration`, referenced
+ *  here only by id. */
+export interface IWorkflowTaskState {
+  taskId: string;
+  agentId: AgentType;
+  status: WorkflowTaskStatus;
+  attempts: number;
+  generationIds: string[];
+  failureCategory?: FailureCategory;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+/** One real-time workflow event (Phase 10 spec §19/§21) — a fixed, allowlisted shape; never carries a
+ *  raw error object, env, or secret. */
+export interface IWorkflowEvent {
+  type: WorkflowEventType;
+  workflowId: string;
+  taskId?: string;
+  agentId?: AgentType;
+  status?: WorkflowTaskStatus | WorkflowStatus;
+  message: string;
+  timestamp: string;
+}
+
+export interface IWorkflow {
+  id: string;
+  project: string;
+  plan: string;
+  owner: string;
+  status: WorkflowStatus;
+  mode: WorkflowMode;
+  maxConcurrency: number;
+  fixCycles: number;
+  tasks: IWorkflowTaskState[];
+  events: IWorkflowEvent[];
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type AutopilotTaskOutcome = 'completed' | 'skipped' | 'failed' | 'not_attempted';
 
 /** One task's result from an end-to-end Autopilot run — a one-shot run outcome, distinct from
@@ -782,4 +838,42 @@ export interface PaginationMeta {
 export interface PaginatedData<T> {
   items: T[];
   pagination: PaginationMeta;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Secure Terminal + Sandbox Execution Environment
+// ---------------------------------------------------------------------------
+
+/** One sandboxed command execution (Phase 11 spec §54/§55, merged into a single entity — see the
+ *  Phase 11 plan's §1: a "sandbox" and a "terminal session" are the same thing in this design,
+ *  since a sandbox never outlives the one command it runs). */
+export interface ISandboxSession {
+  id: string;
+  project: string;
+  owner: string;
+  status: SandboxStatus;
+  command: string;
+  args: string[];
+  containerId?: string;
+  image?: string;
+  exitCode?: number;
+  logs: { stdout: string; stderr: string; truncated: boolean };
+  resourceLimits: { memoryMb: number; cpuCores: number; pidsLimit: number };
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One real-time sandbox/terminal event (Phase 11 spec §13/§21/§65) — same fixed, allowlisted
+ *  payload shape as `IWorkflowEvent`. */
+export interface ISandboxEvent {
+  type: SandboxEventType;
+  sandboxId: string;
+  message: string;
+  /** Only set for `terminal:output`/`terminal:error` — the actual streamed chunk. */
+  chunk?: string;
+  exitCode?: number;
+  timestamp: string;
 }

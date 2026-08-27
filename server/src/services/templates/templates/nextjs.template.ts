@@ -8,7 +8,7 @@ export function nextjsTemplate(): StarterEntry[] {
       path: 'app/layout.tsx',
       type: FileEntryType.FILE,
       content:
-        "export default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n    </html>\n  );\n}\n",
+        "import type { ReactNode } from 'react';\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n    </html>\n  );\n}\n",
     },
     {
       path: 'app/page.tsx',

@@ -3,6 +3,18 @@ import type { StarterEntry } from '../template.service';
 
 export function reactTemplate(): StarterEntry[] {
   return [
+    {
+      path: 'index.html',
+      type: FileEntryType.FILE,
+      content:
+        '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <title>Mingo AI Project</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.jsx"></script>\n  </body>\n</html>\n',
+    },
+    {
+      path: 'vite.config.js',
+      type: FileEntryType.FILE,
+      content:
+        "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\nexport default defineConfig({\n  plugins: [react()],\n});\n",
+    },
     { path: 'src', type: FileEntryType.FOLDER },
     { path: 'src/components', type: FileEntryType.FOLDER },
     {

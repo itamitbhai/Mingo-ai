@@ -2,15 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import type { IProjectPlan, TaskPriority } from 'shared';
 
 import { ApiError } from '@/lib/api';
-import * as autopilotService from '@/services/autopilot.service';
 import * as plannerService from '@/services/planner/planner.service';
-import { useAutopilotStore } from '@/store/use-autopilot-store';
+import * as workflowService from '@/services/workflow.service';
 import { usePlannerStore } from '@/store/use-planner-store';
-import { AutopilotPanel } from './AutopilotPanel';
 import { PlanDiffDialog } from './PlanDiffDialog';
 import { PlannerPromptForm } from './PlannerPromptForm';
 import { PlanVersionHistory } from './PlanVersionHistory';
@@ -39,23 +38,13 @@ export function PlannerWorkspace({ projectId }: PlannerWorkspaceProps) {
   const setPendingDiff = usePlannerStore((state) => state.setPendingDiff);
   const reset = usePlannerStore((state) => state.reset);
 
-  const autopilotRunStatus = useAutopilotStore((state) => state.runStatus);
-  const autopilotPhase = useAutopilotStore((state) => state.phase);
-  const autopilotStageLabel = useAutopilotStore((state) => state.stageLabel);
-  const autopilotCurrentTask = useAutopilotStore((state) => state.currentTask);
-  const autopilotStreamError = useAutopilotStore((state) => state.streamError);
-  const autopilotResult = useAutopilotStore((state) => state.result);
-  const startAutopilotRun = useAutopilotStore((state) => state.startRun);
-  const setAutopilotStage = useAutopilotStore((state) => state.setStage);
-  const finishAutopilotRun = useAutopilotStore((state) => state.finishRun);
-  const failAutopilotRun = useAutopilotStore((state) => state.failRun);
-  const resetAutopilot = useAutopilotStore((state) => state.reset);
-
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const [isDiffOpen, setIsDiffOpen] = useState(false);
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const [startedWorkflowId, setStartedWorkflowId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const autopilotAbortRef = useRef<AbortController | null>(null);
 
   const loadHistory = useCallback(async () => {
     setIsLoadingHistory(true);
@@ -76,12 +65,10 @@ export function PlannerWorkspace({ projectId }: PlannerWorkspaceProps) {
 
   useEffect(() => {
     reset();
-    resetAutopilot();
+    setBuildError(null);
+    setStartedWorkflowId(null);
     void loadHistory();
-    return () => {
-      abortRef.current?.abort();
-      autopilotAbortRef.current?.abort();
-    };
+    return () => abortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -119,40 +106,35 @@ export function PlannerWorkspace({ projectId }: PlannerWorkspaceProps) {
     }
   }
 
+  /**
+   * "Build It Now" (Phase 10 spec §10) — creates a real, dependency-aware Workflow (Frontend +
+   * Backend + Database + Testing, not just Frontend) instead of the older Autopilot's linear,
+   * frontend-only, non-resumable run. Plan generation/approval still happens synchronously in this
+   * one request; everything after that (the actual multi-agent build) continues detached on the
+   * server — this component only needs to show that it started, then point at the Workspace's
+   * Workflow panel to watch it live. `autopilot.service.ts`/`AutopilotPanel`/`use-autopilot-store.ts`
+   * are intentionally left in the codebase, just no longer called from here.
+   */
   async function handleBuildNow(prompt: string) {
-    startAutopilotRun();
-    const controller = new AbortController();
-    autopilotAbortRef.current = controller;
+    setIsBuilding(true);
+    setBuildError(null);
+    setStartedWorkflowId(null);
 
     try {
       const token = await getToken();
-      await autopilotService.streamAutopilot(
-        projectId,
-        { prompt },
-        token,
-        {
-          signal: controller.signal,
-          onEvent: (event) => {
-            if (event.type === 'stage') {
-              setAutopilotStage(event);
-            } else if (event.type === 'done') {
-              finishAutopilotRun({ plan: event.plan, tasks: event.tasks, stoppedEarly: event.stoppedEarly });
-              // The plan Autopilot just created+approved shows up in the same Plan Version
-              // History / PlanView the manual flow already renders, for free.
-              setCurrentPlan(event.plan);
-              void loadHistory();
-              toast.success(event.stoppedEarly ? 'Build stopped partway through — see the summary below' : 'Build complete');
-            } else if (event.type === 'error') {
-              failAutopilotRun(event.message);
-              toast.error(event.message);
-            }
-          },
-        }
-      );
+      const workflow = await workflowService.createWorkflow(projectId, { prompt, mode: 'review' }, token);
+      const plan = await plannerService.getPlan(projectId, workflow.plan, token);
+
+      setCurrentPlan(plan);
+      setStartedWorkflowId(workflow.id);
+      void loadHistory();
+      toast.success('Workflow started — open the Workspace to watch it build.');
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : 'Failed to build this project';
-      failAutopilotRun(message);
+      const message = error instanceof ApiError ? error.message : 'Failed to start the workflow';
+      setBuildError(message);
       toast.error(message);
+    } finally {
+      setIsBuilding(false);
     }
   }
 
@@ -246,7 +228,6 @@ export function PlannerWorkspace({ projectId }: PlannerWorkspaceProps) {
   }
 
   const isStreaming = runStatus === 'streaming';
-  const isBuilding = autopilotRunStatus === 'streaming';
 
   return (
     <div className="flex flex-col gap-4">
@@ -260,16 +241,19 @@ export function PlannerWorkspace({ projectId }: PlannerWorkspaceProps) {
         error={streamError}
       />
 
-      {(autopilotRunStatus !== 'idle' || autopilotResult) && (
-        <AutopilotPanel
-          projectId={projectId}
-          runStatus={autopilotRunStatus}
-          phase={autopilotPhase}
-          stageLabel={autopilotStageLabel}
-          currentTask={autopilotCurrentTask}
-          streamError={autopilotStreamError}
-          result={autopilotResult}
-        />
+      {buildError && (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          {buildError}
+        </p>
+      )}
+
+      {startedWorkflowId && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/60 p-3 text-sm">
+          <span>Workflow started — Frontend, Backend, Database, and Testing agents will run automatically.</span>
+          <Link href={`/projects/${projectId}/workspace`} className="font-medium text-primary hover:underline">
+            Open Workspace →
+          </Link>
+        </div>
       )}
 
       {!isLoadingHistory && planHistory.length > 0 && (

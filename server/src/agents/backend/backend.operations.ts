@@ -48,12 +48,13 @@ export interface BackendOperationsPreview {
   operationsWithDiff: IBackendOperation[];
 }
 
-/** The model occasionally assumes a conventional file (e.g. a server entry point) already exists
- *  when it doesn't and proposes an "update" for it — which the generic preview validator correctly
- *  rejects, since there's nothing to update. Since a "create" and an "update" both carry the full
- *  intended file content, an "update" targeting a path that truly doesn't exist yet is unambiguously
- *  meant as a "create" — repair it here rather than failing the whole task over it. Mirrors
- *  `frontend.operations.ts`'s `normalizeCreateVsUpdate`. */
+/** The model sometimes gets "create" vs "update" backwards for a path it hasn't seen fully — either
+ *  assuming a conventional file (e.g. a server entry point) already exists when it doesn't ("update"
+ *  on a missing path), or forgetting an earlier task already created a file it's now revising
+ *  ("create" on a path that's already there). Since a "create" and an "update" both carry the full
+ *  intended file content, either mismatch is unambiguous from which way `readFile` resolves — repair
+ *  it here rather than failing the whole task over it. Mirrors `frontend.operations.ts`'s
+ *  `normalizeCreateVsUpdate`. */
 async function normalizeCreateVsUpdate(
   owner: Types.ObjectId,
   projectId: string,
@@ -61,14 +62,17 @@ async function normalizeCreateVsUpdate(
 ): Promise<IBackendOperation[]> {
   return Promise.all(
     operations.map(async (op) => {
-      if (op.type !== BatchOperationType.UPDATE) return op;
+      if (op.type !== BatchOperationType.UPDATE && op.type !== BatchOperationType.CREATE) return op;
 
       const exists = await vfs.readFile(owner, projectId, op.path).then(
         () => true,
         () => false
       );
 
-      return exists ? op : { ...op, type: BatchOperationType.CREATE };
+      if (op.type === BatchOperationType.UPDATE) {
+        return exists ? op : { ...op, type: BatchOperationType.CREATE };
+      }
+      return exists ? { ...op, type: BatchOperationType.UPDATE } : op;
     })
   );
 }

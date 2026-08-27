@@ -1,8 +1,8 @@
 /**
- * Shared types for the sandbox execution engine (Phase 9 §2) — the from-scratch subsystem that
- * materializes a project's Mongo-backed virtual filesystem into a real, ephemeral OS temp directory
- * and runs its test command there. Nothing in `agents/testing/` reaches into these types directly
- * except `testing.runner.ts`, which orchestrates them into one `TestRun`.
+ * Types for materializing a project and detecting its test command (Phase 9 §2) — the actual command
+ * *execution* now happens inside a Docker container (`server/src/sandbox/`, Phase 11), not here.
+ * Nothing in `agents/testing/` reaches into these types directly except `testing.runner.ts`, which
+ * orchestrates them into one `TestRun`.
  */
 
 export interface MaterializedWorkspace {
@@ -30,23 +30,3 @@ export interface DetectedTestCommand {
 /** A `DetectedTestCommand` narrowed to a single scope request — `extraArgs` carries a specific test
  *  file path when the scope targets one file (spec §42/§62's "run affected test only"). */
 export type ScopedTestCommand = DetectedTestCommand & { extraArgs?: string[] };
-
-export interface RunProcessOptions {
-  cwd: string;
-  command: string;
-  args: string[];
-  timeoutMs: number;
-  maxOutputChars: number;
-  signal?: AbortSignal;
-  onOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
-}
-
-export interface RunProcessResult {
-  exitCode: number | null;
-  signal: string | null;
-  stdout: string;
-  stderr: string;
-  truncated: boolean;
-  timedOut: boolean;
-  cancelled: boolean;
-}

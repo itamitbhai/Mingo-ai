@@ -16,9 +16,10 @@ import { useWorkspaceKeyboardShortcuts } from '@/hooks/use-workspace-keyboard-sh
 import { formatDocument, isFormattableLanguage } from '@/lib/format-document';
 import { fileCacheKey, useFileCacheStore } from '@/store/use-file-cache-store';
 import { useWorkspaceStore, type WorkspaceUiStatus } from '@/store/use-workspace-store';
-import { useWorkspaceUIStore } from '@/store/use-workspace-ui-store';
+import { useHydrateWorkspaceUIStore, useWorkspaceUIStore } from '@/store/use-workspace-ui-store';
 import type { AIContextAttachment, EditorProblem } from '@/types/workspace';
 import { FrontendAgentPanel } from '@/components/agent/FrontendAgentPanel';
+import { WorkflowPanel } from '@/components/workflow/WorkflowPanel';
 import { BatchOperationsDialog } from './BatchOperationsDialog';
 import { BottomPanel } from './BottomPanel';
 import { CommandPalette } from './CommandPalette';
@@ -66,16 +67,19 @@ interface WorkspaceShellProps {
 }
 
 export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShellProps) {
+  useHydrateWorkspaceUIStore();
   const { getToken } = useAuth();
   const files = useWorkspaceFiles(projectId, initialTree);
 
   const isExplorerOpen = useWorkspaceUIStore((state) => state.isExplorerOpen);
   const isAIChatOpen = useWorkspaceUIStore((state) => state.isAIChatOpen);
   const isAgentPanelOpen = useWorkspaceUIStore((state) => state.isAgentPanelOpen);
+  const isWorkflowPanelOpen = useWorkspaceUIStore((state) => state.isWorkflowPanelOpen);
   const isBottomPanelOpen = useWorkspaceUIStore((state) => state.isBottomPanelOpen);
   const toggleExplorer = useWorkspaceUIStore((state) => state.toggleExplorer);
   const toggleAIChat = useWorkspaceUIStore((state) => state.toggleAIChat);
   const toggleAgentPanel = useWorkspaceUIStore((state) => state.toggleAgentPanel);
+  const toggleWorkflowPanel = useWorkspaceUIStore((state) => state.toggleWorkflowPanel);
   const toggleBottomPanel = useWorkspaceUIStore((state) => state.toggleBottomPanel);
   const openTabPaths = useWorkspaceUIStore((state) => state.getProjectUI(projectId).openTabPaths);
   const activeTabPath = useWorkspaceUIStore((state) => state.getProjectUI(projectId).activeTabPath);
@@ -235,10 +239,12 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
         isExplorerOpen={isExplorerOpen}
         isAIChatOpen={isAIChatOpen}
         isAgentPanelOpen={isAgentPanelOpen}
+        isWorkflowPanelOpen={isWorkflowPanelOpen}
         isBottomPanelOpen={isBottomPanelOpen}
         onToggleExplorer={toggleExplorer}
         onToggleAIChat={toggleAIChat}
         onToggleAgentPanel={toggleAgentPanel}
+        onToggleWorkflowPanel={toggleWorkflowPanel}
         onToggleBottomPanel={toggleBottomPanel}
         onSave={() => void save()}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -275,7 +281,7 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
             )}
 
             <ResizablePanel
-              defaultSize={isAIChatOpen || isAgentPanelOpen ? 55 : 82}
+              defaultSize={isAIChatOpen || isAgentPanelOpen || isWorkflowPanelOpen ? 55 : 82}
               minSize={30}
             >
               <div className="flex h-full flex-col">
@@ -319,7 +325,23 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
               <>
                 <ResizableHandle />
                 <ResizablePanel defaultSize={27} minSize={20} maxSize={45}>
-                  <FrontendAgentPanel projectId={projectId} onClose={toggleAgentPanel} />
+                  <FrontendAgentPanel
+                    projectId={projectId}
+                    onClose={toggleAgentPanel}
+                    onApplied={(paths) => {
+                      void files.refresh();
+                      paths.forEach((path) => useFileCacheStore.getState().removeFile(fileCacheKey(projectId, path)));
+                    }}
+                  />
+                </ResizablePanel>
+              </>
+            )}
+
+            {isWorkflowPanelOpen && (
+              <>
+                <ResizableHandle />
+                <ResizablePanel defaultSize={27} minSize={20} maxSize={45}>
+                  <WorkflowPanel projectId={projectId} onClose={toggleWorkflowPanel} />
                 </ResizablePanel>
               </>
             )}
@@ -330,7 +352,7 @@ export function WorkspaceShell({ projectId, project, initialTree }: WorkspaceShe
           <>
             <ResizableHandle />
             <ResizablePanel defaultSize={30} minSize={15} maxSize={60}>
-              <BottomPanel problems={problems} logs={[]} onSelectProblem={handleSelectProblem} />
+              <BottomPanel projectId={projectId} problems={problems} logs={[]} onSelectProblem={handleSelectProblem} />
             </ResizablePanel>
           </>
         )}
