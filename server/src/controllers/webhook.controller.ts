@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Webhook } from 'svix';
 import { UserModel } from '../models';
 import { env } from '../config/env';
+import * as githubWebhookService from '../services/deployment/githubWebhook.service';
 import { ApiError } from '../utils/ApiError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { logger } from '../utils/logger';
@@ -95,6 +96,33 @@ export const handleClerkWebhook = asyncHandler(async (req: Request, res: Respons
 
     default:
       logger.debug(`Unhandled Clerk webhook event: ${event.type}`);
+  }
+
+  res.status(200).json({ success: true, data: { received: true } });
+});
+
+/**
+ * GitHub webhook (Phase 13 spec §19) — push/pull_request → auto-deploy. Always returns 200 once the
+ * signature is verified and the payload is parsed, even if no project matched or auto-deploy wasn't
+ * configured (GitHub retries/disables webhooks that keep failing, and "no project subscribed to this
+ * push" isn't a delivery failure). Actual deploy failures are logged inside the deployment service,
+ * not surfaced as an HTTP error here — GitHub only cares that the webhook itself was received.
+ */
+export const handleGithubWebhook = asyncHandler(async (req: Request, res: Response) => {
+  githubWebhookService.verifyGithubWebhookSignature(req.body as Buffer, req.header('x-hub-signature-256'));
+
+  const event = req.header('x-github-event');
+  const payload = JSON.parse((req.body as Buffer).toString('utf8'));
+
+  switch (event) {
+    case 'push':
+      await githubWebhookService.handlePushEvent(payload);
+      break;
+    case 'pull_request':
+      await githubWebhookService.handlePullRequestEvent(payload);
+      break;
+    default:
+      logger.debug(`Unhandled GitHub webhook event: ${event}`);
   }
 
   res.status(200).json({ success: true, data: { received: true } });

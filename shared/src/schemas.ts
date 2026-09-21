@@ -4,7 +4,9 @@ import {
   BackendStack,
   BatchOperationType,
   DatabaseOption,
+  DeploymentEnvironment,
   DeploymentOption,
+  DeploymentServiceType,
   FrontendStack,
   ProjectStatus,
   StylingOption,
@@ -439,3 +441,222 @@ export const createSandboxRunSchema = z
   });
 
 export type CreateSandboxRunInput = z.infer<typeof createSandboxRunSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 12 — GitHub Integration & Version Control
+// ---------------------------------------------------------------------------
+
+const GIT_BRANCH_NAME_REGEX = /^(?!\/|.*\/\/|.*\.\.|.*[~^:?*[\\])[^\s]+(?<!\.lock)(?<!\/)$/;
+const branchNameField = z
+  .string()
+  .trim()
+  .min(1, 'Branch name is required')
+  .max(200, 'Branch name is too long')
+  .regex(GIT_BRANCH_NAME_REGEX, 'Not a valid git branch name');
+
+/** Connects an existing Mingo project to an existing GitHub repository (spec §7). */
+export const connectGithubProjectSchema = z.object({
+  repositoryFullName: z
+    .string()
+    .trim()
+    .regex(/^[^/\s]+\/[^/\s]+$/, 'Expected "owner/repo"'),
+  branch: branchNameField,
+});
+
+export type ConnectGithubProjectInput = z.infer<typeof connectGithubProjectSchema>;
+
+/** Imports a GitHub repository as a brand-new Mingo project (spec §8) — the stack fields mirror
+ *  `createProjectSchema` exactly (pre-filled client-side from repository analysis, spec §9, but
+ *  always explicitly confirmed/submitted by the user, never silently inferred server-side). */
+export const importGithubRepoSchema = z.object({
+  repositoryFullName: z
+    .string()
+    .trim()
+    .regex(/^[^/\s]+\/[^/\s]+$/, 'Expected "owner/repo"'),
+  branch: branchNameField,
+  name: z
+    .string()
+    .trim()
+    .min(3, 'Project name must be at least 3 characters')
+    .max(60, 'Project name must be at most 60 characters'),
+  description: z
+    .string()
+    .trim()
+    .min(10, 'Description must be at least 10 characters')
+    .max(500, 'Description must be at most 500 characters'),
+  frontend: z.enum(enumValues(FrontendStack)),
+  backend: z.enum(enumValues(BackendStack)),
+  database: z.enum(enumValues(DatabaseOption)),
+  authentication: z.enum(enumValues(AuthOption)),
+  styling: z.enum(enumValues(StylingOption)),
+  deployment: z.enum(enumValues(DeploymentOption)),
+});
+
+export type ImportGithubRepoInput = z.infer<typeof importGithubRepoSchema>;
+
+/** Creates a brand-new (empty) GitHub repository for an existing Mingo project (spec §7's "Create
+ *  New Repository" variant). */
+export const createGithubRepoSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Repository name is required')
+    .max(100, 'Repository name is too long')
+    .regex(/^[a-zA-Z0-9._-]+$/, 'Repository name may only contain letters, numbers, ., _ and -'),
+  description: z.string().trim().max(350).optional(),
+  private: z.boolean().default(true),
+});
+
+export type CreateGithubRepoInput = z.infer<typeof createGithubRepoSchema>;
+
+export const createGitBranchSchema = z.object({
+  name: branchNameField,
+  fromBranch: branchNameField.optional(),
+});
+
+export type CreateGitBranchInput = z.infer<typeof createGitBranchSchema>;
+
+export const switchGitBranchSchema = z.object({
+  branch: branchNameField,
+});
+
+export type SwitchGitBranchInput = z.infer<typeof switchGitBranchSchema>;
+
+export const commitChangesSchema = z.object({
+  message: z
+    .string()
+    .trim()
+    .min(1, 'Commit message is required')
+    .max(500, 'Commit message is too long'),
+  paths: z.array(z.string().min(1).max(500)).max(500).optional(),
+});
+
+export type CommitChangesInput = z.infer<typeof commitChangesSchema>;
+
+export const createPullRequestSchema = z.object({
+  baseBranch: branchNameField,
+  compareBranch: branchNameField,
+  title: z
+    .string()
+    .trim()
+    .min(1, 'Title is required')
+    .max(256, 'Title is too long'),
+  description: z.string().trim().max(10000).optional(),
+});
+
+export type CreatePullRequestInput = z.infer<typeof createPullRequestSchema>;
+
+export const githubHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export type GithubHistoryQueryInput = z.infer<typeof githubHistoryQuerySchema>;
+
+export const githubRepositoryQuerySchema = z.object({
+  search: z.string().trim().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export type GithubRepositoryQueryInput = z.infer<typeof githubRepositoryQuerySchema>;
+
+/** One conflicted file's resolution (spec §21) — `manual` requires the user's own merged
+ *  `content`; `current`/`incoming` keep this side's version wholesale. Never resolved server-side
+ *  without one of these being explicitly chosen by the user. */
+export const resolveGitConflictSchema = z.object({
+  resolution: z.enum(['current', 'incoming', 'manual']),
+  content: z.string().max(5_000_000).optional(),
+}).refine((value) => value.resolution !== 'manual' || typeof value.content === 'string', {
+  message: 'content is required when resolution is "manual"',
+});
+
+export type ResolveGitConflictInput = z.infer<typeof resolveGitConflictSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 13 — Deployment Engine, Production Builds & Live Preview
+// ---------------------------------------------------------------------------
+
+/** Every deployment-configured command is executed inside the same Docker sandbox every other
+ *  command runs in (Phase 11) — so it must pass that sandbox's own binary allowlist
+ *  (`SANDBOX_ALLOWED_COMMANDS`, unchanged by this phase) at the Zod level too, not just at execution
+ *  time. `npm run build`, not a bare `vite build`. */
+const deploymentCommandField = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `${label} is required`)
+    .max(300, `${label} is too long`)
+    .refine((value) => {
+      const [first] = value.split(/\s+/);
+      return (SANDBOX_ALLOWED_COMMANDS as readonly string[]).includes(first);
+    }, `${label} must start with one of: ${SANDBOX_ALLOWED_COMMANDS.join(', ')} (e.g. "npm run build")`);
+
+export const healthCheckConfigSchema = z.object({
+  path: z.string().trim().min(1).max(200).default('/'),
+  expectedStatus: z.coerce.number().int().min(100).max(599).default(200),
+  timeoutSeconds: z.coerce.number().int().min(1).max(120).default(30),
+  retries: z.coerce.number().int().min(0).max(10).default(3),
+});
+export type HealthCheckConfigInput = z.infer<typeof healthCheckConfigSchema>;
+
+const DEFAULT_HEALTH_CHECK: HealthCheckConfigInput = {
+  path: '/',
+  expectedStatus: 200,
+  timeoutSeconds: 30,
+  retries: 3,
+};
+
+export const deploymentConfigSchema = z.object({
+  provider: z.enum(enumValues(DeploymentOption)),
+  serviceType: z.enum(enumValues(DeploymentServiceType)),
+  environment: z.enum(enumValues(DeploymentEnvironment)).default(DeploymentEnvironment.PRODUCTION),
+  branch: z.string().trim().min(1).max(200).default('main'),
+  buildCommand: deploymentCommandField('Build command').default('npm run build'),
+  startCommand: deploymentCommandField('Start command').optional(),
+  testCommand: deploymentCommandField('Test command').optional(),
+  outputDirectory: z.string().trim().max(200).optional(),
+  rootDirectory: z.string().trim().max(200).optional(),
+  framework: z.string().trim().max(100).optional(),
+  nodeVersion: z.string().trim().max(20).optional(),
+  autoDeploy: z.boolean().default(false),
+  healthCheck: healthCheckConfigSchema.default(DEFAULT_HEALTH_CHECK),
+}).refine((value) => value.serviceType === DeploymentServiceType.STATIC_SITE || Boolean(value.startCommand), {
+  message: 'Start command is required for a web service',
+  path: ['startCommand'],
+});
+export type DeploymentConfigInput = z.infer<typeof deploymentConfigSchema>;
+
+const ENV_VAR_KEY_REGEX = /^[A-Z_][A-Z0-9_]*$/;
+
+export const createEnvironmentVariableSchema = z.object({
+  environment: z.enum(enumValues(DeploymentEnvironment)),
+  key: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(ENV_VAR_KEY_REGEX, 'Keys must be UPPER_SNAKE_CASE (e.g. DATABASE_URL)'),
+  value: z.string().max(10000),
+});
+export type CreateEnvironmentVariableInput = z.infer<typeof createEnvironmentVariableSchema>;
+
+export const updateEnvironmentVariableSchema = z.object({
+  value: z.string().max(10000),
+});
+export type UpdateEnvironmentVariableInput = z.infer<typeof updateEnvironmentVariableSchema>;
+
+/** `allowDirty` is the explicit, user-chosen override spec §16 requires before deploying workspace
+ *  content that differs from what's on GitHub — never defaulted to true. */
+export const createDeploymentSchema = z.object({
+  environment: z.enum(enumValues(DeploymentEnvironment)).default(DeploymentEnvironment.PRODUCTION),
+  branch: z.string().trim().min(1).max(200).optional(),
+  allowDirty: z.boolean().default(false),
+});
+export type CreateDeploymentInput = z.infer<typeof createDeploymentSchema>;
+
+export const deploymentHistoryQuerySchema = z.object({
+  environment: z.enum(enumValues(DeploymentEnvironment)).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type DeploymentHistoryQueryInput = z.infer<typeof deploymentHistoryQuerySchema>;

@@ -44,13 +44,97 @@ export const ProjectStatus = {
 } as const;
 export type ProjectStatus = (typeof ProjectStatus)[keyof typeof ProjectStatus];
 
+/** Coarse deployment lifecycle (Phase 13 spec §29) — `PENDING`/`BUILDING`/`SUCCESS`/`FAILED` predate
+ *  Phase 13 and keep their meaning; the rest fill out the full run lifecycle. The fine-grained
+ *  current pipeline step (installing/testing/building/health-checking/...) is tracked separately by
+ *  `DeploymentStage`, since a single `BUILDING`-ish status can't distinguish those for the progress UI. */
 export const DeploymentStatus = {
+  QUEUED: 'queued',
   PENDING: 'pending',
+  RUNNING: 'running',
   BUILDING: 'building',
   SUCCESS: 'success',
   FAILED: 'failed',
+  CANCELLED: 'cancelled',
+  ROLLED_BACK: 'rolled_back',
 } as const;
 export type DeploymentStatus = (typeof DeploymentStatus)[keyof typeof DeploymentStatus];
+
+/** The current pipeline step of a `RUNNING` deployment (Phase 13 spec §11) — purely informational
+ *  (drives the live progress UI/logs), never itself the authorization for marking a deployment
+ *  successful; only a passed health check does that (spec §7/§25). */
+export const DeploymentStage = {
+  PREPARING: 'preparing',
+  VALIDATING: 'validating',
+  INSTALLING: 'installing',
+  TESTING: 'testing',
+  BUILDING: 'building',
+  DEPLOYING: 'deploying',
+  HEALTH_CHECKING: 'health_checking',
+  COMPLETE: 'complete',
+} as const;
+export type DeploymentStage = (typeof DeploymentStage)[keyof typeof DeploymentStage];
+
+/** What kind of service a deployment provider should create (Phase 13 spec §6/§7). Deliberately an
+ *  explicit user choice on `DeploymentConfig`, not inferred from `Project.frontend`/`backend` —
+ *  this codebase's project creation form only ever shows/hides which stack fields to fill in
+ *  client-side (`project-form.tsx`'s local `projectType` state); a saved `Project` document always
+ *  has concrete `backend`/`database` values regardless of what the user intended, so it can't be
+ *  used as a reliable "is this frontend-only" signal. One `DeploymentConfig` deploys one service
+ *  this pass — a project that truly needs a separate frontend + backend service is configured as
+ *  two environments' worth of config today (a documented scope limit, not a silent gap). */
+export const DeploymentServiceType = {
+  STATIC_SITE: 'static_site',
+  WEB_SERVICE: 'web_service',
+} as const;
+export type DeploymentServiceType = (typeof DeploymentServiceType)[keyof typeof DeploymentServiceType];
+
+/** Kept distinct from `WorkspaceStatus`'s dev/preview split and from `ProjectStatus` — this is which
+ *  deployment target a `Deployment`/`DeploymentConfig`/`EnvironmentVariable` belongs to (spec §8). */
+export const DeploymentEnvironment = {
+  DEVELOPMENT: 'development',
+  PREVIEW: 'preview',
+  PRODUCTION: 'production',
+} as const;
+export type DeploymentEnvironment = (typeof DeploymentEnvironment)[keyof typeof DeploymentEnvironment];
+
+/** Whether a deployment's post-deploy health check has run yet and what it found (spec §25/§26) — a
+ *  deployment is never marked `DeploymentStatus.SUCCESS` while this is anything but `PASSED`. */
+export const HealthCheckStatus = {
+  PENDING: 'pending',
+  PASSED: 'passed',
+  FAILED: 'failed',
+} as const;
+export type HealthCheckStatus = (typeof HealthCheckStatus)[keyof typeof HealthCheckStatus];
+
+/** Real-time deployment pipeline events (Phase 13 spec §11/§34) — same allowlisted-payload style as
+ *  `WorkflowEventType`/`SandboxEventType`/`GitHubEventType`: never a raw error object, secret, or env.
+ *  Streamed over the deployment-scoped SSE channel in `deployment.events.ts`. */
+export const DeploymentEventType = {
+  STARTED: 'deployment:started',
+  VALIDATION: 'deployment:validation',
+  INSTALL: 'deployment:install',
+  TEST: 'deployment:test',
+  BUILD: 'deployment:build',
+  UPLOAD: 'deployment:upload',
+  DEPLOYING: 'deployment:deploying',
+  HEALTHCHECK: 'deployment:healthcheck',
+  SUCCESS: 'deployment:success',
+  FAILED: 'deployment:failed',
+  CANCELLED: 'deployment:cancelled',
+} as const;
+export type DeploymentEventType = (typeof DeploymentEventType)[keyof typeof DeploymentEventType];
+
+/** What started a deployment (Phase 13 spec §18/§19/§20). `WEBHOOK` and `ROLLBACK` both pin to an
+ *  already-known commit fetched straight from GitHub — the pipeline skips Mingo's own local
+ *  install/test/build pre-flight for both, since it would be validating potentially-stale Mongo VFS
+ *  content instead of the actual commit being deployed; only `MANUAL` runs the local pre-flight. */
+export const DeploymentTrigger = {
+  MANUAL: 'manual',
+  WEBHOOK: 'webhook',
+  ROLLBACK: 'rollback',
+} as const;
+export type DeploymentTrigger = (typeof DeploymentTrigger)[keyof typeof DeploymentTrigger];
 
 export const PlanType = {
   FREE: 'free',
@@ -66,6 +150,15 @@ export const ActivityType = {
   PROJECT_ARCHIVED: 'project.archived',
   PROJECT_DUPLICATED: 'project.duplicated',
   DEPLOYMENT_TRIGGERED: 'deployment.triggered',
+  DEPLOYMENT_SUCCEEDED: 'deployment.succeeded',
+  DEPLOYMENT_FAILED: 'deployment.failed',
+  DEPLOYMENT_ROLLED_BACK: 'deployment.rolled_back',
+  ENV_VAR_CREATED: 'env_var.created',
+  ENV_VAR_UPDATED: 'env_var.updated',
+  ENV_VAR_DELETED: 'env_var.deleted',
+  AUTO_DEPLOY_ENABLED: 'auto_deploy.enabled',
+  AUTO_DEPLOY_DISABLED: 'auto_deploy.disabled',
+  PRODUCTION_DEPLOY_APPROVED: 'deployment.production_approved',
   PROFILE_UPDATED: 'profile.updated',
   WORKSPACE_CREATED: 'workspace.created',
 } as const;
@@ -463,3 +556,75 @@ export const SandboxEventType = {
   SANDBOX_DESTROYED: 'sandbox:destroyed',
 } as const;
 export type SandboxEventType = (typeof SandboxEventType)[keyof typeof SandboxEventType];
+
+/** Lifecycle of a user's account-level GitHub OAuth connection (Phase 12 spec §5). Distinct from a
+ *  per-project `GitSyncStatus` — a user connects GitHub once, then connects/imports many projects
+ *  against that single connection. */
+export const GitHubConnectionStatus = {
+  CONNECTED: 'connected',
+  REVOKED: 'revoked',
+  ERROR: 'error',
+} as const;
+export type GitHubConnectionStatus = (typeof GitHubConnectionStatus)[keyof typeof GitHubConnectionStatus];
+
+/** Per-project Git sync state (Phase 12 spec §6) — surfaced in the Source Control panel's status
+ *  badge, same spirit as `WorkspaceStatus`. */
+export const GitSyncStatus = {
+  NOT_CONNECTED: 'not_connected',
+  SYNCING: 'syncing',
+  SYNCED: 'synced',
+  AHEAD: 'ahead',
+  BEHIND: 'behind',
+  DIVERGED: 'diverged',
+  CONFLICT: 'conflict',
+  ERROR: 'error',
+} as const;
+export type GitSyncStatus = (typeof GitSyncStatus)[keyof typeof GitSyncStatus];
+
+/** One file's status in `git status --porcelain` output (Phase 12 spec §10/§21), mapped from git's
+ *  own letter codes into a name the Source Control panel can render directly. */
+export const GitFileStatus = {
+  MODIFIED: 'modified',
+  ADDED: 'added',
+  DELETED: 'deleted',
+  RENAMED: 'renamed',
+  UNTRACKED: 'untracked',
+  CONFLICTED: 'conflicted',
+} as const;
+export type GitFileStatus = (typeof GitFileStatus)[keyof typeof GitFileStatus];
+
+/** GitHub Pull Request state, as GitHub's own REST API reports it (Phase 12 spec §19/§20) — never
+ *  fabricated, always read straight off the Octokit response. */
+export const PullRequestState = {
+  OPEN: 'open',
+  CLOSED: 'closed',
+  MERGED: 'merged',
+} as const;
+export type PullRequestState = (typeof PullRequestState)[keyof typeof PullRequestState];
+
+/** Real-time GitHub/Git event types (Phase 12 spec §34) — same allowlisted-payload discipline as
+ *  `WorkflowEventType`/`SandboxEventType`: never a raw error object, env, or token. Streamed over
+ *  the project-scoped SSE channel in `github.events.ts`. */
+export const GitHubEventType = {
+  CONNECTING: 'github:connecting',
+  CONNECTED: 'github:connected',
+  DISCONNECTED: 'github:disconnected',
+  IMPORT_START: 'github:import:start',
+  IMPORT_PROGRESS: 'github:import:progress',
+  IMPORT_COMPLETE: 'github:import:complete',
+  SYNC_START: 'github:sync:start',
+  SYNC_COMPLETE: 'github:sync:complete',
+  PUSH_START: 'github:push:start',
+  PUSH_COMPLETE: 'github:push:complete',
+  PULL_START: 'github:pull:start',
+  PULL_COMPLETE: 'github:pull:complete',
+  FETCH_START: 'github:fetch:start',
+  FETCH_COMPLETE: 'github:fetch:complete',
+  COMMIT_COMPLETE: 'github:commit:complete',
+  BRANCH_CREATED: 'github:branch:created',
+  BRANCH_SWITCHED: 'github:branch:switched',
+  PR_CREATED: 'github:pr:created',
+  CONFLICT: 'github:conflict',
+  ERROR: 'github:error',
+} as const;
+export type GitHubEventType = (typeof GitHubEventType)[keyof typeof GitHubEventType];

@@ -14,6 +14,8 @@ import { autopilotRouter } from './autopilot.routes';
 import { testRunRouter } from './test-run.routes';
 import { workflowRouter } from './workflow.routes';
 import { sandboxRouter } from './sandbox.routes';
+import { githubRouter } from './github.routes';
+import { deploymentRouter, environmentVariableRouter } from './deployment.routes';
 
 const router = Router();
 
@@ -34,6 +36,9 @@ router.use('/projects/:projectId/test-runs', testRunRouter);
 router.use('/projects/:projectId/workflows', workflowRouter);
 router.use('/projects/:projectId/sandbox', sandboxRouter);
 router.use('/projects/:projectId/autopilot', autopilotRouter);
+router.use('/projects/:projectId/deployment', deploymentRouter);
+router.use('/projects/:projectId/environment-variables', environmentVariableRouter);
+router.use('/github', githubRouter);
 router.use('/profile', profileRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/dashboard', dashboardRoutes);

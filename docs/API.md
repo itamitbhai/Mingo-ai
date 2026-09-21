@@ -277,6 +277,76 @@ contract requires. All four (`apiContracts`/`schemaContracts`/`databaseChanges` 
 `contractWarnings`) are `undefined`/empty on a Frontend Agent generation, and
 `schemaContracts`/`databaseChanges` are `undefined`/empty on a Backend Agent one.
 
+## GitHub Integration (Phase 12)
+
+Account-level connection (`/api/github/*`) plus per-project sync (`/api/projects/:projectId/github/*`,
+where implemented — only OAuth connect and repository/branch listing are built so far; the local
+working-copy Source Control panel (status/diff/commit/push/pull/PR/conflict UI) is a follow-up
+milestone). A GitHub access token is never returned by any endpoint or sent to the client — every
+GitHub API call happens server-side through `services/github/githubClient.ts`.
+
+| Method | Path                                        | Description |
+| ------ | -------------------------------------------- | ------------- |
+| GET    | `/github/connect`                            | Returns `{ authorizeUrl }` — the client redirects the browser to it |
+| GET    | `/github/callback`                           | Not authenticated (a plain browser redirect from github.com) — identity comes from a signed, short-lived `state`, not a session. Redirects back to `<CLIENT_URL>/settings?tab=integrations&github=connected\|error` |
+| GET    | `/github/status`                             | `{ connected, username?, avatarUrl?, scopes?, connectedAt? }` — never the token |
+| POST   | `/github/disconnect`                         | Removes the stored connection; never deletes Mingo projects or GitHub repositories |
+| GET    | `/github/repositories`                       | `search?, page?, limit?` — paginated, real Octokit call |
+| POST   | `/github/repositories`                       | `{ name, description?, private }` — creates a new GitHub repository |
+| GET    | `/github/repositories/:id`                   | `:id` is URL-encoded `owner/repo`, not GitHub's numeric id |
+| GET    | `/github/repositories/:id/branches`          | — |
+| POST   | `/github/repositories/:id/branches`          | `{ name, fromBranch? }` — creates a branch directly via the Git Data API |
+
+## Deployment Engine (Phase 13)
+
+Install → validate → build → test → deploy → real health check → live URL, for one service per
+`{project, environment}`. Requires the project to be connected to GitHub first (deployment providers
+are git-based PaaS — they clone from GitHub, they don't accept an uploaded artifact). A deployment's
+`status` is only ever `success` after an actual HTTP health check against the live URL passes.
+
+| Method | Path                                                          | Description |
+| ------ | --------------------------------------------------------------- | ------------- |
+| GET    | `/projects/:projectId/deployment/config`                        | `?environment=` (default `production`) |
+| GET    | `/projects/:projectId/deployment/configs`                       | All environments' configs |
+| PUT    | `/projects/:projectId/deployment/config`                        | `DeploymentConfigInput` — provider, serviceType, branch, build/start/test commands, health check |
+| POST   | `/projects/:projectId/deployment/validate`                      | Dry run — factual readiness checks (spec: never a numeric score), no `Deployment` created |
+| POST   | `/projects/:projectId/deployment/deploy`                        | `{ environment, branch?, allowDirty? }` — `409` if one's already running for that environment; `400` (with `errors.files`) if the workspace differs from GitHub and `allowDirty` wasn't set |
+| GET    | `/projects/:projectId/deployment/history`                       | `?environment=, page=, limit=` |
+| GET    | `/projects/:projectId/deployment/:deploymentId`                 | — |
+| GET    | `/projects/:projectId/deployment/:deploymentId/events`          | SSE — live pipeline stages + build/deploy log chunks |
+| POST   | `/projects/:projectId/deployment/:deploymentId/cancel`          | Aborts the in-flight pipeline run |
+| POST   | `/projects/:projectId/deployment/:deploymentId/rollback`        | Creates a *new* deployment pinned to that deployment's exact commit — history is never mutated |
+| GET    | `/projects/:projectId/environment-variables`                    | `?environment=` — values always masked |
+| POST   | `/projects/:projectId/environment-variables`                    | `{ environment, key, value }` — encrypted at rest (AES-256-GCM) |
+| GET    | `/projects/:projectId/environment-variables/:id/reveal`         | The one explicit path that returns a real value |
+| PATCH  | `/projects/:projectId/environment-variables/:id`                | `{ value }` |
+| DELETE | `/projects/:projectId/environment-variables/:id`                | — |
+
+Deploy pipeline SSE frames (`data: <json>\n\n`, same manual-`fetch`-based SSE pattern as chat/plan
+generation):
+
+```jsonc
+{ "type": "deployment:validation", "stage": "validating", "message": "..." }
+{ "type": "deployment:install", "stage": "installing", "message": "...", "chunk": "..." }
+{ "type": "deployment:test", "stage": "testing", "message": "..." }
+{ "type": "deployment:build", "stage": "building", "message": "...", "chunk": "..." }
+{ "type": "deployment:deploying", "stage": "deploying", "message": "Provider status: build_in_progress" }
+{ "type": "deployment:healthcheck", "stage": "health_checking", "message": "..." }
+{ "type": "deployment:success", "stage": "complete", "message": "Deployment successful." }
+{ "type": "deployment:failed", "stage": "...", "message": "the real failure reason" }
+```
+
+**Providers**: Render is fully implemented against its real REST API. Vercel/Railway share the same
+`DeploymentProvider` interface but return a clear "not configured" error — never a fake success.
+Render can only deploy a public repo directly, or a private one already connected via Render's own
+dashboard/GitHub App install.
+
+**Triggers** (`Deployment.triggeredBy`): `manual` (the endpoints above) runs Mingo's own sandbox
+pre-flight (install/test/build) before deploying; `webhook` (GitHub push/PR, when
+`DeploymentConfig.autoDeploy` is on) and `rollback` both pin to an already-known commit and skip the
+local pre-flight, letting the provider build that exact commit directly from GitHub. PR-triggered
+preview deployments (`environment: preview`) get their own Render service per PR number.
+
 ## Profile
 
 | Method | Path        | Body                  | Description                                    |
@@ -303,6 +373,14 @@ contract requires. All four (`apiContracts`/`schemaContracts`/`databaseChanges` 
 `POST /webhooks/clerk` — verified via Svix using `CLERK_WEBHOOK_SECRET`. Handles `user.created`,
 `user.updated`, and `user.deleted` to keep the local `User` collection in sync with Clerk. Point
 this at `https://<your-api-domain>/api/webhooks/clerk` from the Clerk Dashboard → Webhooks.
+
+`POST /webhooks/github` — verified via HMAC-SHA256 (`X-Hub-Signature-256`) using
+`GITHUB_WEBHOOK_SECRET`; an invalid or missing signature is rejected (`400`/`401`), never silently
+accepted. Handles `push` (triggers an auto-deploy for any project+environment with
+`DeploymentConfig.autoDeploy` true and a matching branch) and `pull_request` (`opened`/`synchronize`/
+`reopened` → a `preview` environment deployment scoped to that PR number). Always responds `200`
+once the signature verifies, even when no project matched — GitHub treats a non-2xx as a delivery
+failure and will retry/eventually disable the webhook.
 
 ## Errors
 

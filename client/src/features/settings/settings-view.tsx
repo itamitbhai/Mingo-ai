@@ -1,11 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth, useClerk, UserProfile } from '@clerk/nextjs';
 import { Monitor, Moon, Shield, Sun, Trash2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Theme, type INotificationPreferences, type ISettings, type UpdateSettingsInput } from 'shared';
+
+import { GithubIntegrationCard } from './github-integration-card';
 
 import {
   AlertDialog,
@@ -74,6 +77,29 @@ export function SettingsView({ settings: initialSettings }: { settings: ISetting
   const { theme, setTheme } = useTheme();
   const { getToken } = useAuth();
   const { signOut } = useClerk();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const requestedTab = searchParams.get('tab');
+  const defaultTab = requestedTab === 'integrations' ? 'integrations' : 'general';
+
+  // Deep link from the GitHub OAuth callback redirect (`?tab=integrations&github=connected|error`,
+  // see `github.controller.ts`'s `callback`) — surface the result once, then clean the URL so a
+  // refresh doesn't re-fire the toast.
+  useEffect(() => {
+    const githubResult = searchParams.get('github');
+    if (!githubResult) return;
+
+    if (githubResult === 'connected') {
+      toast.success('GitHub connected');
+    } else if (githubResult === 'error') {
+      toast.error('Failed to connect GitHub. Please try again.');
+    }
+
+    router.replace(requestedTab ? `${pathname}?tab=${requestedTab}` : pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const persistSettings = async (patch: UpdateSettingsInput) => {
     try {
@@ -110,11 +136,12 @@ export function SettingsView({ settings: initialSettings }: { settings: ISetting
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <Tabs defaultValue="general">
+      <Tabs defaultValue={defaultTab}>
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="integrations">Integrations</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="mt-4">
@@ -187,6 +214,10 @@ export function SettingsView({ settings: initialSettings }: { settings: ISetting
               </Button>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="integrations" className="mt-4">
+          <GithubIntegrationCard />
         </TabsContent>
       </Tabs>
 

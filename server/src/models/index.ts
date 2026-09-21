@@ -19,3 +19,6 @@ export * from './agentGeneration.model';
 export * from './testRun.model';
 export * from './workflow.model';
 export * from './sandboxSession.model';
+export * from './githubConnection.model';
+export * from './deploymentConfig.model';
+export * from './environmentVariable.model';

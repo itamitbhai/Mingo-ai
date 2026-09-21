@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Archive, ArchiveRestore, Code2, Copy, Loader2, Pencil, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Code2, Copy, Loader2, Pencil, Rocket, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { ProjectStatus, type IProject } from 'shared';
 
 import {
@@ -41,6 +41,11 @@ export function ProjectDetailActions({ project }: { project: IProject }) {
         <Button variant="outline" size="sm" asChild>
           <Link href={`/projects/${project.id}/plan`}>
             <Wand2 className="size-4" /> Open Planner
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/projects/${project.id}/deploy`}>
+            <Rocket className="size-4" /> Deploy
           </Link>
         </Button>
         <Button variant="outline" size="sm" onClick={() => editProject(project)} disabled={isPending}>

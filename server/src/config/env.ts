@@ -91,6 +91,44 @@ const envSchema = z.object({
   SANDBOX_ORPHAN_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(300000),
   SANDBOX_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
   SANDBOX_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(20),
+
+  // GitHub Integration & Version Control (Phase 12) — a standalone GitHub OAuth App, independent of
+  // Clerk login. Required so a missing/misconfigured app fails fast at boot rather than surfacing as
+  // a confusing 500 the first time a user clicks "Connect GitHub".
+  GITHUB_CLIENT_ID: z.string().min(1, 'GITHUB_CLIENT_ID is required'),
+  GITHUB_CLIENT_SECRET: z.string().min(1, 'GITHUB_CLIENT_SECRET is required'),
+  GITHUB_CALLBACK_URL: z.string().url(),
+  // 32-byte (256-bit) key, base64-encoded, used for AES-256-GCM encryption of stored GitHub access
+  // tokens at rest (spec §5/§23) — e.g. `openssl rand -base64 32`.
+  GITHUB_TOKEN_ENCRYPTION_KEY: z
+    .string()
+    .min(1, 'GITHUB_TOKEN_ENCRYPTION_KEY is required')
+    .refine((value) => {
+      try {
+        return Buffer.from(value, 'base64').length === 32;
+      } catch {
+        return false;
+      }
+    }, 'GITHUB_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key'),
+  // Root directory for the persistent, per-project real `git` working copies (spec §33/§9's Context
+  // decision) — never inside the repo, never served statically. Defaults to a dedicated dir under the
+  // OS temp dir so local dev needs no setup.
+  GIT_WORKDIR_ROOT: z.string().min(1).optional(),
+  GITHUB_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  GITHUB_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(30),
+  // GitHub webhook (push/pull_request → auto-deploy, Phase 13 spec §19) — a separate secret you set
+  // when creating the webhook in the repository's GitHub settings. Optional: without it, the webhook
+  // route simply rejects every delivery with a clear "not configured" error rather than crashing boot.
+  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
+
+  // Deployment Engine (Phase 13) — optional: a dev environment without a Render account can still run
+  // everything except an actual deploy, which fails with a clear "provider not configured" error
+  // instead of crashing boot (unlike GitHub's OAuth app, which the whole GitHub feature needs to even
+  // load its routes).
+  RENDER_API_KEY: z.string().min(1).optional(),
+  HEALTH_CHECK_DEFAULT_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  DEPLOYMENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  DEPLOYMENT_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
 });
 
 function loadEnv() {

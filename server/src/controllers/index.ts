@@ -15,3 +15,7 @@ export * as autopilotController from './autopilot.controller';
 export * as testRunController from './test-run.controller';
 export * as workflowController from './workflow.controller';
 export * as sandboxController from './sandbox.controller';
+export * as githubController from './github.controller';
+export * as deploymentConfigController from './deployment-config.controller';
+export * as environmentVariableController from './environment-variable.controller';
+export * as deploymentController from './deployment.controller';

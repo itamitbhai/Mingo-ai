@@ -125,3 +125,20 @@ export const sandboxRateLimiter = createRateLimiter({
   max: env.SANDBOX_RATE_LIMIT_MAX_REQUESTS,
   message: 'You are running sandbox commands too quickly. Please wait a moment and try again.',
 });
+
+/** Every GitHub-backed operation (repo listing, import, commit, push, pull, PR) calls the real
+ *  GitHub API, which has its own rate limits — this budget protects both Mingo and the user's
+ *  GitHub API quota from a runaway client (Phase 12 spec §36). */
+export const githubRateLimiter = createRateLimiter({
+  windowMs: env.GITHUB_RATE_LIMIT_WINDOW_MS,
+  max: env.GITHUB_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are performing GitHub operations too quickly. Please wait a moment and try again.',
+});
+
+/** Triggering a deployment kicks off a real sandbox build plus a real call to an external hosting
+ *  provider — its own budget, separate from every other feature (Phase 13 spec §32). */
+export const deploymentRateLimiter = createRateLimiter({
+  windowMs: env.DEPLOYMENT_RATE_LIMIT_WINDOW_MS,
+  max: env.DEPLOYMENT_RATE_LIMIT_MAX_REQUESTS,
+  message: 'You are triggering deployments too quickly. Please wait a moment and try again.',
+});

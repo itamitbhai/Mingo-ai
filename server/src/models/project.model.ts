@@ -5,10 +5,28 @@ import {
   DatabaseOption,
   DeploymentOption,
   FrontendStack,
+  GitSyncStatus,
   ProjectStatus,
   StylingOption,
 } from 'shared';
 import { applyToJSON } from '../utils/applyToJSON';
+
+/** A project's GitHub connection (Phase 12 spec §6) — absent/`connected: false` until the user
+ *  connects an existing project to a repository or imports one. Kept as a subdocument rather than a
+ *  separate collection since it's always read/written alongside its `Project` and there's exactly
+ *  one per project. */
+export interface ProjectGitHubConfig {
+  connected: boolean;
+  repositoryId?: number;
+  repositoryName?: string;
+  repositoryFullName?: string;
+  repositoryUrl?: string;
+  owner?: string;
+  defaultBranch?: string;
+  currentBranch?: string;
+  lastSyncedAt?: Date;
+  syncStatus: GitSyncStatus;
+}
 
 export interface ProjectDocument extends Document {
   _id: Types.ObjectId;
@@ -23,6 +41,7 @@ export interface ProjectDocument extends Document {
   status: ProjectStatus;
   owner: Types.ObjectId;
   favorite: boolean;
+  github: ProjectGitHubConfig;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,6 +105,28 @@ const projectSchema = new Schema<ProjectDocument>(
     favorite: {
       type: Boolean,
       default: false,
+    },
+    github: {
+      type: new Schema<ProjectGitHubConfig>(
+        {
+          connected: { type: Boolean, default: false },
+          repositoryId: { type: Number },
+          repositoryName: { type: String },
+          repositoryFullName: { type: String },
+          repositoryUrl: { type: String },
+          owner: { type: String },
+          defaultBranch: { type: String },
+          currentBranch: { type: String },
+          lastSyncedAt: { type: Date },
+          syncStatus: {
+            type: String,
+            enum: Object.values(GitSyncStatus),
+            default: GitSyncStatus.NOT_CONNECTED,
+          },
+        },
+        { _id: false }
+      ),
+      default: () => ({ connected: false, syncStatus: GitSyncStatus.NOT_CONNECTED }),
     },
   },
   { timestamps: true }
